@@ -1,0 +1,658 @@
+---
+title: "NBA 4920/6921 Lecture 2"
+subtitle: "Data Exploration and Visualization" 
+author:  "Murat Unal"
+
+institute:  "Johnson Graduate School of Management"
+
+date: "09/02/2021"
+# output: html_document
+output: 
+    beamer_presentation:
+      colortheme: "beaver"
+      df_print: "kable"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(comment = '', 
+                      warning = FALSE, 
+                      message = FALSE)
+```
+
+# Agenda
+
+-   Quiz 1
+
+-   Review
+
+-   Quick Intro to R Markdown
+
+-   Exploratory Data Analysis (EDA)
+
+-   Variation
+
+-   Co-variation
+
+-   Visualization
+
+-   Start Linear Regression
+
+------------------------------------------------------------------------
+
+Load/install the following packages
+
+```{r }
+rm(list=ls())
+options("scipen"=100,"digits"=8)
+
+library(tidyverse)
+library(ISLR)
+library(cowplot)
+library(ggcorrplot)
+library(stargazer)
+library(corrr)
+data <- data.frame(ggplot2::mpg)
+
+#to get more info about the dataset type:
+#?ggplot2::mpg
+```
+
+# Exploratory Data Analysis (EDA)
+
+Before we start building models we need to understand the data.
+
+EDA refers to the process of constructing a preliminary understanding of the data before running models.
+
+EDA is an important part of any data analysis. Use EDA to:
+
+1.  Generate questions about your data
+
+2.  Search for answers by visualizing, transforming, and/or modeling your data
+
+3.  Use what you learn to refine your questions and/or generate new questions
+
+------------------------------------------------------------------------
+
+Start with the structure of the data and some basic descriptives.
+
+```{r}
+str(data)
+```
+
+------------------------------------------------------------------------
+
+```{r}
+names(data)
+```
+
+------------------------------------------------------------------------
+
+```{r}
+ncol(data)
+nrow(data)
+```
+
+------------------------------------------------------------------------
+
+```{r}
+head(data, n=3)
+```
+
+------------------------------------------------------------------------
+
+```{r}
+tail(data)
+```
+
+------------------------------------------------------------------------
+
+```{r}
+summary(data)[,c(1:3)]
+```
+
+------------------------------------------------------------------------
+
+We can also use the `stargazer()` function to produce easy to read summary statistics tables.
+
+```{r}
+stargazer(data, summary = TRUE, type = "text")
+```
+
+------------------------------------------------------------------------
+
+We want to have a clear idea about the missing values in the data.
+
+```{r}
+colSums(is.na(data))
+```
+
+------------------------------------------------------------------------
+
+We can also use `sapply()` for this
+
+```{r}
+sapply(data, function(y) sum(is.na(y)))
+```
+
+If there are missing observations you can remove them using the `na.omit()` function
+
+------------------------------------------------------------------------
+
+The following questions will help us in understanding the data:
+
+1.  What type of variation occurs within my variables?\
+2.  What type of covariation occurs between my variables?
+
+------------------------------------------------------------------------
+
+# Variation
+
+Variation is the tendency of the values of a variable to change from measurement to measurement.
+
+You can see variation easily in real life; if you measure any continuous variable twice---and precisely enough---you will get two different results.
+
+------------------------------------------------------------------------
+
+Variation can be summarized in different ways, each providing you unique understanding of how the values are spread out.
+
+```{r}
+# Range
+range(data$hwy, na.rm = TRUE)
+```
+
+------------------------------------------------------------------------
+
+```{r}
+# Percentiles
+# default quantile() percentiles are 0%, 25%, 50%, 
+# 75%, and 100%
+quantile(data$hwy, na.rm = TRUE)
+```
+
+------------------------------------------------------------------------
+
+```{r}
+# we can customize quantile() for specific percentiles
+quantile(data$hwy, 
+        probs = seq(from = 0, to = 1, by = .1),
+        na.rm = TRUE)
+```
+
+------------------------------------------------------------------------
+
+Use `group_by()` to compute summary statistics by one or multiple categorical variables
+
+```{r }
+data %>% group_by(class) %>% summarize(
+                             n = n(),
+                             mean_hwy = mean(hwy),
+                             mean_displ = mean(displ))
+
+```
+
+------------------------------------------------------------------------
+
+```{r eval=FALSE}
+data %>% group_by(class,drv) %>% summarize(
+                                 n = n(),
+                                 mean_hwy = mean(hwy),                                                    mean_displ = mean(displ))
+
+```
+
+------------------------------------------------------------------------
+
+```{r echo=FALSE}
+data %>% group_by(class,drv) %>% summarize(
+                                 n = n(),
+                                 mean_hwy = mean(hwy),                                                 mean_displ = mean(displ))
+```
+
+------------------------------------------------------------------------
+
+# Co-variation
+
+Variation describes the behavior within a variable, co-variation describes the behavior between variables.
+
+Co-variation is the tendency for the values of two or more variables to vary together in a related way.
+
+------------------------------------------------------------------------
+
+We can summarize the linear dependence between two quantities using the **correlation coefficient**.
+
+Let's select the numeric variables in the data and compute their correlations using the `cor()` function.
+
+```{r}
+# Find the numeric columns
+num_cols =  unlist(lapply(data, is.numeric))
+# Create the correlation matrix
+corr = cor(data[,num_cols])
+corr
+```
+
+------------------------------------------------------------------------
+
+Let's also visualize the correlations using `ggcorrplot()`.
+
+```{r eval=FALSE}
+ggcorrplot(corr,
+     type = "full",lab = FALSE,
+    legend.title = "Correlation Coefficient",
+    colors = c("#053061", "white", "#67001f"),
+    ggtheme = ggplot2::theme_void,
+    outline.col = "white") 
+```
+
+------------------------------------------------------------------------
+
+```{r echo=FALSE}
+ggcorrplot(corr,
+     type = "full",lab = FALSE,
+    legend.title = "Correlation Coefficient",
+    colors = c("#053061", "white", "#67001f"),
+    ggtheme = ggplot2::theme_void,
+    outline.col = "white") 
+```
+
+------------------------------------------------------------------------
+
+Let's create a data frame that has the absolute values of the correlations between `hwy` and other variables and sort them in descending order.
+
+We'll use the `corrr()` package for this.
+
+------------------------------------------------------------------------
+
+```{r eval=FALSE}
+
+# Convert correlation matrix to data frame
+corr_df =   as_cordf(corr) %>%
+# Focus on the hwy variable
+  focus(hwy) %>%
+# Get the absolute value of the correlation 
+# coefficient
+  mutate(hwy = abs(hwy)) %>%
+# Sort variables by absolute value of correlation 
+# coefficient
+  arrange(desc(hwy)) %>%
+# Clean up headers
+  rename(`correlation with hwy` = term ) %>%
+  rename(corr_coef = hwy)
+corr_df
+```
+
+------------------------------------------------------------------------
+
+```{r echo=FALSE}
+# Convert correlation matrix to data frame
+corr_df =   as_cordf(corr) %>%
+# Focus on the hwy variable
+  focus(hwy) %>%
+# Get the absolute value of the correlation coefficient
+  mutate(hwy = abs(hwy)) %>%
+# Sort variables by absolute value of correlation coefficient
+  arrange(desc(hwy)) %>%
+# Clean up headers
+  rename(`correlation with hwy` = term ) %>%
+  rename(corr_coef = hwy)
+corr_df
+```
+
+------------------------------------------------------------------------
+
+## Exercise:
+
+1.  Read in the `Hitters` data from the `ISLR` package.
+2.  Remove observations with missing values.
+3.  Find the numeric variables.
+4.  Create the correlation matrix
+5.  Create the the correlation plot.
+6.  Display the first 3 variables that have the **lowest** absolute correlations with the `Salary`.
+
+------------------------------------------------------------------------
+
+```{r}
+Hitters <- ISLR::Hitters
+Hitters <- na.omit(Hitters)
+# Find the numeric columns
+num_cols =  unlist(lapply(Hitters, is.numeric))
+
+```
+
+------------------------------------------------------------------------
+
+```{r}
+# Create the correlation matrix
+corr = cor(Hitters[,num_cols])
+
+corr[1:4,1:4]
+```
+
+------------------------------------------------------------------------
+
+```{r eval=FALSE}
+# Create the plot
+ggcorrplot(corr,
+  type = "full",
+  lab = FALSE,
+  legend.title = "Correlation Coefficient",
+  colors = c("#053061", "white", "#67001f"),
+  ggtheme = ggplot2::theme_void,
+  outline.col = "white"
+) 
+```
+
+------------------------------------------------------------------------
+
+```{r echo=FALSE}
+# Create the plot
+ggcorrplot(corr,
+  type = "full",
+  lab = FALSE,
+  legend.title = "Correlation Coefficient",
+  colors = c("#053061", "white", "#67001f"),
+  ggtheme = ggplot2::theme_void,
+  outline.col = "white"
+) 
+```
+
+------------------------------------------------------------------------
+
+```{r}
+# Convert correlation matrix to data frame
+corr_df =   as_cordf(corr) %>%
+# Focus on the Salary variable
+  focus(Salary) %>%
+# Get the absolute value of the correlation 
+# coefficient
+  mutate(Salary = abs(Salary)) %>%
+# Sort variables by absolute value of correlation 
+# coefficient
+  arrange(Salary) %>%
+# Clean up headers
+  rename(`correlation with Salary` = term ) %>%
+  rename(corr_coef = Salary)
+```
+
+------------------------------------------------------------------------
+
+```{r}
+head(corr_df,n=3)
+
+```
+
+------------------------------------------------------------------------
+
+# Visualization
+
+Summary statistics and correlations are not enough for understanding the data.
+
+The best way to understand a variable's pattern of variation is to visualize the distribution of the variable's values.
+
+------------------------------------------------------------------------
+
+To examine the distribution of a categorical variable, use a bar chart.
+
+```{r}
+ggplot(data = mpg) +
+  geom_bar(mapping = aes(x = class))
+```
+
+------------------------------------------------------------------------
+
+The height of the bars displays how many observations occurred with each x value. You can compute these values manually with `dplyr::count()`:
+
+```{r}
+mpg %>% count(class)
+```
+
+------------------------------------------------------------------------
+
+To examine the distribution of a continuous variable, use a hist:
+
+```{r warning=FALSE, message=FALSE}
+ggplot(data = data) +
+  geom_histogram(mapping = aes(x = hwy), binwidth = 1)
+```
+
+------------------------------------------------------------------------
+
+Overlaying multiple histograms in the same plot can be useful in discerning differences between categorical variables.
+
+```{r warning=FALSE, message=FALSE, eval=FALSE}
+ggplot(data = data, 
+       mapping = aes(x = hwy, colour = class)) +
+  geom_freqpoly(binwidth = 1)
+```
+
+------------------------------------------------------------------------
+
+```{r warning=FALSE, message=FALSE,echo=FALSE}
+ggplot(data = data, 
+       mapping = aes(x = hwy, colour = class)) +
+  geom_freqpoly(binwidth = 1)
+```
+
+------------------------------------------------------------------------
+
+# Frequencies
+
+In both bar charts and histograms, tall bars show the common values of a variable, i.e. the values that appear frequently.
+
+Look for anything unexpected:
+
+-   Which values are the most common? Why?
+
+-   Which values are rare? Why? Does that match your expectations?
+
+-   Can you see any unusual patterns? What might explain them?
+
+-   Are there any outliers?
+
+------------------------------------------------------------------------
+
+# Why look at data?
+
+Good visualization methods offer extremely valuable tools that we can use to better understand the relationship between two variables.
+
+------------------------------------------------------------------------
+
+```{r}
+str(anscombe)
+```
+
+------------------------------------------------------------------------
+
+```{r}
+colMeans(anscombe)[1:4]
+colMeans(anscombe)[5:8]
+```
+
+------------------------------------------------------------------------
+
+```{r}
+#Correlation between pairs of x and y
+cor(anscombe)[5:8,1:4]
+```
+***
+## Exercise 
+Now let's create scatter plots for this data and fit a regression line for each pair
+
+
+***
+
+```{r warning=FALSE, message=FALSE, eval=FALSE}
+p1 <- ggplot(anscombe, aes(x1,y1,)) + 
+  geom_point()+
+  geom_smooth(method='lm', formula= y~x,se=FALSE, 
+                           colour = "blue")
+
+p2 <- ggplot(anscombe, aes(x2,y2,)) + 
+  geom_point()+
+  geom_smooth(method='lm', formula= y~x,se=FALSE,
+                           colour = "blue")
+
+```
+
+------------------------------------------------------------------------
+
+```{r warning=FALSE, message=FALSE, eval=FALSE}
+
+p3 <- ggplot(anscombe, aes(x3,y3,)) + 
+  geom_point()+
+  geom_smooth(method='lm', formula= y~x,se=FALSE,
+                           colour = "blue")
+
+p4 <- ggplot(anscombe, aes(x4,y4,)) + 
+  geom_point()+
+  geom_smooth(method='lm', formula= y~x,se=FALSE,
+                           colour = "blue")
+
+plot_grid(p1,p2,p3,p4)
+```
+
+------------------------------------------------------------------------
+
+What is your interpretation of the relationship between each pair?
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+p1 <- ggplot(anscombe, aes(x1,y1,)) + 
+  geom_point()+
+  geom_smooth(method='lm', formula= y~x,se=FALSE, colour = "blue")
+
+p2 <- ggplot(anscombe, aes(x2,y2,)) + 
+  geom_point()+
+  geom_smooth(method='lm', formula= y~x,se=FALSE,colour = "blue")
+
+p3 <- ggplot(anscombe, aes(x3,y3,)) + 
+  geom_point()+
+  geom_smooth(method='lm', formula= y~x,se=FALSE,colour = "blue")
+
+p4 <- ggplot(anscombe, aes(x4,y4,)) + 
+  geom_point()+
+  geom_smooth(method='lm', formula= y~x,se=FALSE,colour = "blue")
+
+plot_grid(p1,p2,p3,p4)
+```
+
+------------------------------------------------------------------------
+
+## Exercise
+
+Create a graph that shows the differences between the hwy distributions of two groups of cars: those that have `displ` below and greater or equal the median `displ`.
+
+------------------------------------------------------------------------
+
+## Solution:
+
+```{r echo=FALSE}
+data$HighDispl <-as.factor(ifelse(data$displ>=median(data$displ),
+                                  "Yes","No"))
+```
+
+```{r warning=FALSE, message=FALSE, echo=FALSE}
+ggplot(data = data, mapping = aes(x = hwy, colour = HighDispl)) +
+  geom_freqpoly(binwidth = 1)
+```
+
+------------------------------------------------------------------------
+
+```{r eval=FALSE}
+data$HighDispl <- factor(
+                  ifelse(data$displ>=median(data$displ),
+                  "Yes","No"))
+```
+
+```{r warning=FALSE, message=FALSE, eval=FALSE}
+ggplot(data = data, 
+       mapping = aes(x = hwy,colour = HighDispl)) +
+  geom_freqpoly(binwidth = 1)
+```
+
+------------------------------------------------------------------------
+
+Repeat the same exercise for the cars in the top quartile and the rest.
+
+------------------------------------------------------------------------
+
+## Solution:
+
+```{r echo=FALSE}
+data$TopDispl <- factor(
+                 ifelse(data$displ>=quantile(data$displ)[4],
+                  "Yes","No"))
+```
+
+```{r warning=FALSE, message=FALSE, echo=FALSE}
+ggplot(data = data, 
+       mapping = aes(x = hwy, colour = TopDispl)) +
+  geom_freqpoly(binwidth = 1)
+```
+
+------------------------------------------------------------------------
+
+```{r eval=FALSE}
+data$TopDispl <- factor(
+                 ifelse(data$displ>=quantile(data$displ)[4],
+                    "Yes","No"))
+```
+
+```{r warning=FALSE, message=FALSE, eval=FALSE}
+ggplot(data = data, 
+       mapping = aes(x = hwy, colour = TopDispl)) +
+  geom_freqpoly(binwidth = 1)
+```
+
+------------------------------------------------------------------------
+
+What is wrong with the last figure?
+
+------------------------------------------------------------------------
+
+The two groups differ in the number of Hitters.
+
+```{r}
+summary(data$TopDispl)
+```
+
+------------------------------------------------------------------------
+
+If one of the groups is much smaller than the others, the shapes can be misleading and it's hard to see the differences.
+
+To make the comparison easier we need to swap what is displayed on the y-axis.
+
+Instead of displaying `count`, we'll display `density`, which is the count standardized so that the area under each frequency polygon is one.
+
+------------------------------------------------------------------------
+
+```{r message=FALSE, eval=FALSE}
+ggplot(data = data, 
+       mapping = aes(x = hwy, y = ..density..)) +
+  geom_freqpoly(mapping = aes(colour = TopDispl), 
+          binwidth = 1)
+```
+
+------------------------------------------------------------------------
+
+```{r message=FALSE, echo=FALSE}
+ggplot(data = data, 
+       mapping = aes(x = hwy, y = ..density..)) +
+  geom_freqpoly(mapping = aes(colour = TopDispl), 
+          binwidth = 1)
+```
+
+------------------------------------------------------------------------
+
+Let's take a look at the distribution of `hwy` by `displ` status using `geom_boxplot()`:
+
+```{r message=FALSE, eval=FALSE}
+ggplot(data = data, 
+       mapping = aes(x = hwy, y = TopDispl)) +
+  geom_boxplot()
+```
+
+------------------------------------------------------------------------
+
+```{r message=FALSE, echo=FALSE}
+ggplot(data = data, 
+       mapping = aes(x = hwy, y = TopDispl)) +
+  geom_boxplot()
+```
