@@ -1,0 +1,654 @@
+---
+title: "NBA 4920/6921 Lecture 3"
+subtitle: "Linear Regression Part 1" 
+author:  "Murat Unal"
+institute:  "Johnson Graduate School of Management"
+date: "09/07/2021"
+#output: pdf_document
+# output: html_document
+output: 
+    beamer_presentation: 
+      colortheme: beaver
+      df_print: kable
+      fig_height: 3
+      fig_width: 5
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(comment = '', 
+                      warning = FALSE, 
+                      message = FALSE)
+```
+
+
+# Agenda
+
+* Quiz 2
+
+* Linear regression
+
+* Inference
+
+* Model performance
+
+* Interpreting output
+
+* Modeling interactions
+
+* Qualitative predictors
+
+
+***
+Load/install the following packages.
+
+Download the Advertising data and load it into R.
+
+Read in the Credit and Auto data from the ISLR package
+
+```{r message=FALSE, warning=FALSE}
+rm(list=ls())
+options(digits = 3, scipen = 999)
+library(tidyverse)
+library(ISLR)
+library(cowplot)
+library(ggcorrplot)
+library(stargazer)
+library(corrr)
+library(lmtest)
+library(sandwich)
+library(MASS)
+library(car)
+library(jtools)
+data <- read.csv("Advertising.csv")
+credit <- ISLR::Credit
+auto <- ISLR::Auto
+```
+
+***
+# Linear regression
+
+ Linear regression is a simple parametric approach to supervised
+learning
+
+It assumes the relationship between the outcome $Y$ and the inputs $X = X_1, X_2, \cdots,X_p$ is linear
+
+It's conceptually simple and easy to implement
+
+The model takes the form
+
+$Y = \beta_0 + \beta_1X_1 + \beta_2X_2 + \cdots + \beta_pX_p + \epsilon$
+
+***
+We obtain estimates for the \textcolor{red}{coefficients} $\beta_0,\beta_1,\cdots,\beta_p$ by minimizing the \textbf{Residual Sum of Squares} (RSS)  
+
+\begin{align*}
+         RSS =& \sum_{i=1}^n(y_i - \hat{y_i})^2 \\
+             =& \sum_{i=1}^n(y_i - \hat{\beta_0} - \hat{\beta_1}x_{i1} - \hat{\beta_2}x_{i2}  - \cdots -  \hat{\beta_p}x_{ip} )^2
+\end{align*}
+               
+The values $\hat{\beta_0},\hat{\beta_1},\cdots,\hat{\beta_p}$ are the  \textcolor{red}{least squares coefficient estimates}  
+
+
+*** 
+# Inference
+
+The standard error of an estimator reflects how it varies
+under repeated sampling. 
+
+Standard errors can be used to compute confidence
+intervals.  
+
+A 95\% confidence interval is defined as a range of
+values such that with 95\% probability, the range will
+contain the true unknown value of the parameter. 
+
+It has the form
+\begin{equation*}
+    \hat{\beta_j} \pm 2\cdot SE(\hat{\beta_j})
+\end{equation*}
+
+Standard errors can also be used to perform hypothesis
+tests on the coefficients.
+
+***
+In regression setting we test the \textbf{null hypothesis} of
+
+
+$H_0$ : The coefficient $\hat{\beta_j}$ has no effect on $Y$, i.e
+
+> $\hat{\beta_j} = 0$ versus 
+
+the \textbf{alternative hypothesis}
+
+$H_A$ : The coefficient $\hat{\beta_j}$ has some effect on $Y$ i.e
+
+> $\hat{\beta_j} \neq 0$
+
+***
+To test the null hypothesis, we compute a $t-stat$, given
+by
+
+\begin{equation*}
+    t = \frac{\hat{\beta_j} - 0}{SE(\hat{\beta_j})}
+\end{equation*}
+
+This will have a t-distribution with $n-2$ degrees of
+freedom, assuming $\hat{\beta_j} = 0$
+
+
+The \emph{p-value} is the probability of observing any value equal or greater than $|t|$, we reject $H_0$ if  \emph{p} $\leq 0.05$
+
+
+***
+We can also test for \textbf{any} association between the predictors and the response, i.e. 
+
+we can answer \emph{if at least one predictor is useful.}
+
+The \textbf{null hypothesis} now becomes
+
+$H_0$ : All coefficients have no effect on $Y$, i.e 
+
+> $\hat{\beta_1} = \hat{\beta_2} = \cdots =\hat{\beta_p} = 0$
+
+versus the \textbf{alternative hypothesis}
+
+$H_A$ : At least one $\hat{\beta_j}$ is non-zero 
+
+
+***
+To test the null hypothesis, we compute the  $F-stat$, given
+by
+
+\begin{equation*}
+    F = \frac{(TSS - RSS)/p}{RSS/(n-p-1)} \sim F_{n,n-p-1}
+\end{equation*}
+
+\begin{equation*}
+    RSS = \sum_{i=1}^n(y_i - \hat{y_i})^2, TSS = \sum_{i=1}^n(y_i - \bar{y_i})^2  \text{ is the }  \textbf{Total Sum of Squares}
+\end{equation*}
+
+$TSS$ represents the $RSS$ using the mean of the outcome only, i.e. a model with no predictors 
+
+The $F-stat$ will be much larger than 1 if there is any relationship  and we reject $H_0$ if  \emph{p} $\leq 0.05$
+
+***
+## Comparing nested models
+Two regression models are called nested if one contains all the predictors of the other, and some additional predictors.
+
+For example, the model in two independent variables,
+\begin{equation*}
+Y = \beta_0 + \beta_1X_1 + \beta_2X_2 + \epsilon
+\end{equation*}
+
+is nested within the model in four independent variables.
+\begin{equation*}
+Y = \beta_0 + \beta_1X_1 + \beta_2X_2 + \beta_3X_3 + \beta_4X_4 + \epsilon
+\end{equation*}
+
+How to choose between them?
+
+***
+If the larger model has just one more predictor than the smaller model, you could just test the significance of the one additional coefficient, using the t-statistic.
+
+
+When the models differ by  $q>1$ added predictors, you cannot compare them using t-statistics.
+
+
+The conventional test is based on comparing the residual sums of squares for the two models
+
+***
+Since a model with additional predictors will always reduce the residual sum of squares, we ask whether this reduction is statistically meaningful.
+
+Let $RSS_f$, $RSS_q$ be the residual sum of squares from a large and small models, respectively. 
+
+Then the $F-statistic$ becomes:
+
+\begin{equation*}
+    F = \frac{(RSS_q - RSS_f)/q}{RSS_f/(n-p-1)}
+\end{equation*}
+
+In R we can use the `anova()` function to implement this comparison.
+
+*** 
+# Model performance
+
+How does our linear model fit the data? We want to quantify it.
+
+Using  $RSS$ and $TSS$ we compute  \textbf{Residual Standard Error }$(RSE)$ and \textbf{R-squared}$(R^2)$
+    
+\begin{align*}
+    RSE = \sqrt{\frac{RSS}{n-p-1}}, \quad  R^2 =& \frac{TSS-RSS}{TSS}=  1 - \frac{RSS}{TSS} 
+\end{align*}
+
+$RSE$ is the average amount the response deviates from the regression line. 
+
+It measures the \textbf{lack of fit} of the model in absolute terms, i.e units of $Y$ 
+
+***
+
+$R^2$ represents the \textbf{fraction of Variance} explained by our model, independent of the scale of $Y$
+
+$R^2$ close to 1 indicates that a large proportion of the variability in $Y$ has been explained by our model
+
+Adding more variables to the model  always increases $R^2$, whereas $RSE$ can increase or decrease
+
+As such, we need to be careful about \textcolor{red}{overfitting}, especially if we aim for prediction
+
+$R^2$ provides no protection against overfitting, quite opposite - \textbf{encourages} it
+
+***
+# Application
+
+```{r, comment = ''}
+str(data)
+```
+
+***
+Lets' check the correlations and visualize the relationships between `Sales` and advertising in different media:
+
+```{r comment = ''}
+corr <- cor(data)
+corr
+```
+
+***
+```{r}
+ggcorrplot(corr, type = "full",lab = FALSE,
+       legend.title = "Correlation Coefficient",
+       colors = c("#053061", "white", "#67001f"),
+       ggtheme = ggplot2::theme_void,
+       outline.col = "white")
+```
+
+
+***
+```{r eval=FALSE}
+p1 <- ggplot(data,mapping = aes(x =TV,y=sales)) +
+      geom_point() +
+      geom_smooth(method = "lm", formula = y~x,
+                  se=FALSE,colour = "blue")
+p2 <- ggplot(data,mapping = aes(x =newspaper,y=sales)) +
+      geom_point() +
+      geom_smooth(method = "lm", formula = y~x,
+                  se=FALSE,colour = "blue")
+p3 <- ggplot(data,mapping = aes(x =radio,y=sales)) +
+      geom_point() +
+      geom_smooth(method = "lm", formula = y~x,
+                  se=FALSE,colour = "blue")
+plot_grid(p1,p2,p3, ncol = 3)  
+```
+
+
+***
+```{r echo=FALSE}
+p1 <- ggplot(data,mapping = aes(x =TV,y=sales)) +
+      geom_point() +
+      geom_smooth(method = "lm", formula = y~x,
+                  se=FALSE,colour = "blue")
+p2 <- ggplot(data,mapping = aes(x =newspaper,y=sales)) +
+      geom_point() +
+      geom_smooth(method = "lm", formula = y~x,
+                  se=FALSE,colour = "blue")
+p3 <- ggplot(data,mapping = aes(x =radio,y=sales)) +
+      geom_point() +
+      geom_smooth(method = "lm", formula = y~x,
+                  se=FALSE,colour = "blue")
+plot_grid(p1,p2,p3, ncol = 3)  
+```
+
+
+***
+Use the `lm()` function to run a regression and `summary()` or `summ()` to get the output.
+
+```{r eval=FALSE}
+lm1 <- lm(sales~TV+radio+newspaper, data = data)
+summary(lm1)
+summ(lm1)
+```
+
+***
+# Interpreting model output
+
+We interpret $\beta_j$ as the average effect on $Y$ of a one unit
+increase in $X_j$, holding all other predictors \textbf{fixed}.
+
+```{r echo=FALSE,comment = ''}
+lm1 <- lm(sales~TV+radio+newspaper, data = data)
+summ(lm1,model.info=FALSE,digits=3)
+```
+
+***
+Didn't we see a positive relationship between `newspaper` and `sales`?
+
+Why do we get a negative coefficient for the effect of `newspaper`?
+
+***
+Correlations among input variables can be problematic as changing one variable will simultaneously change the correlated variables.
+
+Newspaper and radio ads are correlated to each other as well as to sales, leaving one out inflates the effect of the included.
+
+```{r comment = ''}
+corr <- cor(data)
+corr
+```
+
+***
+Let's see this by running the regressions separately:
+
+```{r}
+lm.TV <- lm(sales~TV, data = data)
+lm.radio <- lm(sales~radio, data = data)
+lm.newspaper <- lm(sales~newspaper, data = data)
+```
+
+***
+```{r, comment=''}
+summ(lm.TV,model.info=FALSE,model.fit=FALSE,digits=3)
+```
+The estimate for `TV` didn't change much.
+
+***
+```{r}
+summ(lm.radio,model.info=FALSE,model.fit=FALSE,digits=3)
+```
+
+***
+```{r}
+summ(lm.newspaper,model.info=FALSE,model.fit=FALSE,digits=3)
+```
+
+But the estimates for both `radio` and `newspaper` changed significantly. More importantly `newspaper` now has a positive effect, because leaving out the correlated variable inflates the effect of the included.
+
+***
+This is the \alert{\textbf{Omitted Variable Bias}} in effect and is the reason we refrain from making __causal claims__ in regression settings with observational data
+
+Mainly because we can never conclusively argue that we have accounted for all variables that might be correlated simultanesously with the dependent and one or more of the independent variables 
+
+What other variables do you think we might be missing here?
+
+***
+Let's check if the model is useful overall
+
+```{r}
+summary(lm1)$fstat
+round(pf(summary(lm1)$fstat[1], summary(lm1)$fstat[2],
+   summary(lm1)$fstat[3], lower.tail = FALSE),3)
+```
+
+\emph{F-stat} is large and the associated \emph{p-val} is $\leq 0.01$
+
+***
+Notice, the same info is being produced after calling the `summ()` function.
+
+```{r}
+summ(lm1,model.info=FALSE,digits=3)
+```
+
+***
+
+```{r, comment=''}
+summary(lm1)$r.squared
+```
+
+The model explains 90\% of the variability in `sales`
+
+***
+```{r, comment=''}
+summary(lm1)$sigma
+```
+On average predicted `sales` values will deviate by 1.69 units or dollars
+
+So, yes, we conclude that the model is useful overall in explaining sales as a function of the advertising expenditure in different media
+
+
+***
+Let's compare the model to one that has only `TV` as predictor.
+
+```{r}
+anova(lm.TV,lm1)
+```
+
+The \emph{F-stat} is large and the associated \emph{p-val} is $\leq 0.01$, so using the larger model is justified.
+
+***
+# Modeling interactions
+
+We can enrich the linear model by including interactions if we expect that the effect of one variable might not be constant but depend on the magnitude of another variable.
+
+
+In the advertising model, for example, the advertsing expenditure on `radio` can  actually increase the effectiveness of `TV` advertising.
+
+If this is the case then the slope term for `TV` will not be constant and should increase as `radio` increases.
+
+***
+We can test this idea with the following model:
+
+\begin{align*}
+         Sales &= \beta_0 + \beta_1TV + \beta_2radio + \beta_3  radio \times TV  +
+         \epsilon\\
+         & = \beta_0 + (\beta_1  + \beta_3radio) \times TV   + \beta_2radio 
+         + \epsilon
+\end{align*}
+
+```{r, eval=FALSE}
+lm.interact <- lm(sales~TV*radio,data = data)
+```
+
+*** 
+
+```{r, echo=FALSE, comment=''}
+lm.interact <- lm(sales~TV*radio,data = data)
+```
+```{r}
+summ(lm.interact, model.info=FALSE,digits=4)
+```
+
+***
+There's strong evidence in favor of rejecting 
+
+> $H_0:\hat{\beta_3} = 0$
+
+Which suggest that the effect of `TV` ad spending on `sales` depends on the level of `radio` ad spending
+
+An increase in `TV` ad spending of $\$1000$ is associated with increased `sales` of
+
+\begin{equation*}
+      (\hat{\beta_1} + \hat{\beta_3}\times radio)\times 1000 =   19 + 1.1 \times radio \hskip.2cm \text{units}
+  \end{equation*}
+
+***
+What about the impact of `radio` ad spending?
+
+\pause
+
+An increase in `radio` ad spending of $\$1000$ is associated with increased `sales` of
+
+\begin{equation*}
+      (\hat{\beta_2} + \hat{\beta_3}\times TV)\times 1000 =   29 + 1.1 \times TV \hskip.2cm \text{units}
+\end{equation*}
+
+***
+Let's visualize this interaction effect.
+
+First pick three values for `radio` from its distribution:
+
+```{r}
+summary(data$radio)
+```
+
+Let's pick the first quartile, the mean, and the third quartile:
+10,23,36.
+
+***
+Now, we want to obtain new predictions at three levels for radio and all the TV data using the model we just estimated.
+
+Create a new data:
+
+```{r}
+new.data = data.frame(TV = rep(data$TV,3), 
+                           radio=c(rep(10,200),
+                           rep(23,200),rep(36,200)))
+```
+
+And use the `predict()` function for this new data:
+```{r}
+new.data$predicted.sales <- predict(lm.interact, 
+                                    newdata = new.data)
+```
+
+***
+```{r}
+new.data$radio = factor(new.data$radio)
+ggplot(new.data, mapping=aes(x=TV,y=predicted.sales,
+                                     colour=radio))+
+  geom_line()
+```
+ 
+
+***
+## The hierarchy principle
+
+If your model includes interactions follow the \alert{hierarchy principle}: include the main variables as well, even if their associated \emph{p-values} are not statistically significant
+
+***
+# Qualitative predictors
+
+In order to include qualitative/categorical/factor variables such as sex, marital status, race into the model we need to define new binary variables
+
+For example if we want to include a race variable in our model we define two new variables:
+
+\begin{equation*}
+          x_{i1} = \begin{cases}
+              1  \text{ if $i$th person is Asian}\\
+              0  \text{ if $i$th person is not Asian}\\
+            \end{cases}
+\end{equation*}
+  
+\begin{equation*}
+          x_{i2} = \begin{cases}
+              1  \text{ if $i$th person is Caucasian}\\
+              0  \text{ if $i$th person is not Caucasian}\\
+            \end{cases}
+\end{equation*}
+
+***
+
+The model then becomes
+
+\begin{equation*}
+        y_i = \beta_0 + \beta_1x_{i1} + \beta_2x_{i2} + \epsilon_i =  \begin{cases}
+              \beta_0 + \beta_1 + \epsilon_i  \text{ if $i$th person is Asian}\\
+              \beta_0 + \beta_2 + \epsilon_i  \text{ if $i$th person is Caucasian}\\
+              \beta_0 + \epsilon_i  \text{ if $i$th person is African American}\\
+            \end{cases}
+    \end{equation*}
+
+The level with no dummy variable is the \textbf{baseline}
+
+***
+
+Now $\beta_0$ can be interpreted as the average credit card balance for African Americans, 
+
+$\beta_1$ can be interpreted as the difference in the average balance
+between the Asian and African American categories, and 
+
+$\beta_2$ can be interpreted as the difference in the average balance between the Caucasian and African Americans
+
+***
+Let's apply this in the `credit` data.
+
+```{r, comment=''}
+str(credit)
+```
+
+***
+`Ethnicity` is a factor variable with three levels.
+
+Let's create two dummy variables for Asian and Caucasian and run the regression of `Balance` against these new dummies.
+
+***
+```{r, comment=''}
+credit$Asian = ifelse(credit$Ethnicity=="Asian",1,0)
+credit$Caucasian = ifelse(credit$Ethnicity=="Caucasian",
+                                                    1,0)
+```
+
+```{r, comment=''}
+lm.dummy <- lm(Balance~Asian + Caucasian, data=credit)
+summ(lm.dummy,model.info=FALSE,digits=3)
+```
+
+
+***
+We could also just use the `factor()` function in `R` without creating additional dummies.
+
+```{r, comment=''}
+lm.dummy <- lm(Balance~factor(Ethnicity), data=credit)
+summ(lm.dummy,model.info=FALSE,digits=3)
+```
+
+How do you interpret this result?
+
+***
+We see that the estimated balance for the baseline,
+African American, is \$531.00. 
+
+It is estimated that the Asian category will
+have \$18.69 less debt than the African American category, 
+
+and that the Caucasian category will have \$12.50 less debt than the African American category. 
+
+However, the p-values associated with the coefficient estimates for
+the two dummy variables are very large, suggesting no statistical evidence of a real difference in credit card balance between the ethnicities
+
+***
+# Exercise
+
+1. Run a regression of `Sales` against main variables and all possible interactions. Use the syntax `lm(sales~.^2,data)`.
+
+2. Compare this full interaction model to the one that has only the main variables. Is the interaction model justified?
+
+3. Use the first quartile, the mean, and the third quartile of `newspaper`, fix `radio` at its mean, and plot the interaction effect of `TV*newspaper`.
+
+***
+
+```{r}
+lm.full.int <- lm(sales~.^2,data)
+summ(lm.full.int, model.info=FALSE,
+                  model.fit=FALSE,digits =3)
+```
+
+***
+```{r}
+anova(lm1,lm.full.int)
+```
+
+```{r}
+summary(data$newspaper)
+```
+
+```{r}
+new.data = data.frame(TV=rep(data$TV,3), 
+                        newspaper=c(rep(12.8,200),
+                        rep(30.6,200),rep(45.1,200)),
+                        radio=rep(mean(data$radio),600))
+``` 
+
+```{r}
+new.data$predicted.sales <- predict(lm.full.int, 
+                                    newdata = new.data)
+```
+
+***
+```{r}
+new.data$newspaper = factor(new.data$newspaper)
+ggplot(new.data, mapping=aes(x=TV,y=predicted.sales,
+                                  colour=newspaper))+
+  geom_line()
+```
+
+
+
+
+
+
