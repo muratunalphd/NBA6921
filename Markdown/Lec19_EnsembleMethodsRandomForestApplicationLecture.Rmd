@@ -1,0 +1,371 @@
+---
+title: "NBA 4920/6921 Lecture 18"
+subtitle: "Ensemble Methods: Random Forest Application" 
+author: "Murat Unal"
+date: "11/02/2021"
+output: 
+  beamer_presentation:
+    colortheme: beaver
+    df_print: kable
+    fig_height: 3
+    fig_width: 5
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(comment = '', 
+                      warning = FALSE, 
+                      message = FALSE)
+```
+
+------------------------------------------------------------------------
+
+```{r message=FALSE, warning=FALSE}
+rm(list=ls())
+options(digits = 3, scipen = 999)
+library(tidyverse)
+library(ISLR)
+library(lmtest)
+library(sandwich)
+library(jtools)
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(ROCR)
+library(ipred)
+library(vip)
+library(randomForest)
+library(gbm)
+library(ranger)
+set.seed(2)
+```
+
+***
+```{r}
+Hitters <- ISLR::Hitters
+Hitters <- na.omit(Hitters)
+```
+
+```{r}
+train = sample(1:nrow(Hitters), 0.7*nrow(Hitters))
+rmse.tree <- 323
+rmse.bag <- 269
+```
+
+# Random Forest
+-  The default random forest performs 500 trees and features/3 randomly selected predictor variables at each split.
+
+```{r}
+rf <-randomForest(Salary ~., data=Hitters[train,]) 
+rf
+```
+
+***
+- Our error rate stabilizes with around 300 trees
+```{r}
+plot(rf)
+```
+
+***
+The plotted error rate above is based on the OOB sample error and can be accessed directly at `rf`$mse`. Thus, we can find which number of trees providing the lowest error rate.
+
+```{r}
+# number of trees with lowest MSE
+which.min(rf$mse)
+# RMSE of this optimal random forest
+sqrt(rf$mse[which.min(rf$mse)])
+```
+
+***
+## Tuning
+\vspace{12pt}
+- The following hyperparameters should be tuned for optimal ranfom forest performance
+\vspace{12pt}
+
+- `ntree`: Number of trees. We want enough trees to stabalize the error but using too many trees is unncessarily inefficient, especially when using large data sets.
+\vspace{12pt}
+
+- `mtry`: The number of variables to randomly sample as candidates at each split. When `mtry`=p the model equates to bagging. When `mtry`=1 the split variable is completely random, so all variables get a chance but can lead to overly biased results. 
+\vspace{12pt}
+
+
+***
+- `sampsize`:  The number of samples to train on. The default sampling scheme for random forests is bootstrapping where 100% of the observations are sampled with replacement. The sample size parameter determines how many observations are drawn for the training of each tree. Assess 3–4 values of sample sizes ranging from 50%–100%.
+
+- `nodesize`: minimum number of samples within the terminal nodes. Controls the complexity of the trees. Smaller node size allows for deeper, more complex trees and smaller node results in shallower trees. 
+\vspace{12pt}
+
+- `maxnodes`: maximum number of terminal nodes. Another way to control the complexity of the trees. More nodes equates to deeper, more complex trees and less nodes result in shallower trees
+
+
+***
+## Full grid search with `ranger`
+\vspace{12pt}
+
+- To perform a larger grid search across several hyperparameters we’ll need to create a grid and loop through each hyperparameter combination and evaluate the model.
+\vspace{12pt}
+
+- To perform the grid search, first we want to construct our grid of hyperparameters. We’re going to search across 96 different models with varying mtry, minimum node size, and sample size.
+
+***
+```{r}
+# hyperparameter grid search
+hyper_grid <- expand.grid(
+  mtry       = seq(5, 10, by = 1),
+  node_size  = seq(2, 8, by = 2),
+  sample_size = c(.5, .6, .70, .80),
+  OOB_RMSE   = 0
+)
+
+# total number of combinations
+nrow(hyper_grid)
+```
+
+***
+- We loop through each hyperparameter combination and apply 300 trees since our previous examples illustrated that 300 was plenty to achieve a stable error rate
+
+```{r}
+for(i in 1:nrow(hyper_grid)) {
+  # train model
+  model <- ranger(
+    formula         = Salary ~ ., 
+    data            = Hitters[train,], 
+    num.trees       = 300,
+    mtry            = hyper_grid$mtry[i],
+    min.node.size   = hyper_grid$node_size[i],
+    sample.fraction = hyper_grid$sample_size[i]  )
+  # add OOB error to grid
+  hyper_grid$OOB_RMSE[i] <- sqrt(model$prediction.error)
+}
+
+```
+
+***
+```{r}
+hyper_grid %>% 
+  arrange(OOB_RMSE) %>% head(10)
+```
+
+
+***
+-  The best random forest model we have found and uses `mtry = 10`, `node size` of 2 observations, and a `sample size` of 70%.
+
+```{r}
+optimal_rf <- ranger(
+    formula         = Salary ~ ., 
+    data            = Hitters[train,], 
+    num.trees       = 300,
+    mtry            = 10,
+    min.node.size   = 2,
+    sample.fraction = .7,
+    importance      = 'impurity')
+```
+
+
+***
+- Once we’ve identified our preferred model we can use the traditional predict function to make predictions on a new data set. 
+
+```{r}
+predict_rf <- predict(optimal_rf, Hitters[-train,])$predictions
+rmse.rf <- sqrt(mean((Hitters[-train,"Salary"] - 
+                          predict_rf)^2))
+rmse.rf
+```
+
+
+
+***
+- We could also perform cross validation using the `caret` package
+```{r}
+# control <- trainControl(method="oob")
+control <- trainControl(method = "cv", number = 10)
+tunegrid <- expand.grid(.mtry=c(1:10))
+hit_rf <- train(Salary~., data=Hitters[train,], 
+                method="rf", 
+                metric="RMSE", 
+                tuneGrid=tunegrid, 
+                trControl=control,
+                ntree=300)
+```
+
+***
+```{r}
+hit_rf$bestTune
+hit_rf$finalModel
+```
+
+***
+```{r}
+hit_rf$results
+```
+
+***
+- Make predictions on the test data
+
+```{r}
+pred.rf <- predict(hit_rf, Hitters[-train,])
+rmse.rf2 <- sqrt(mean((Hitters[-train,"Salary"] - 
+                          pred.rf)^2))
+rmse.rf2
+```
+***
+- Compare prediction performance
+
+```{r}
+rmse.tree
+rmse.bag
+rmse.rf
+rmse.rf2
+```
+
+***
+- Variable importance plot
+```{r}
+#vip(optimal_rf)
+vip(hit_rf)
+```
+
+
+# Exercise
+- Implement a single tree with pruning, bagging and random forest on the training data and predict crime rates in the test data.
+
+```{r}
+data_test <- read.csv("boston_test.csv")
+data_train <- read.csv("boston_train.csv")
+```
+
+***
+- Fit single tree
+```{r}
+bos_tree = rpart(crim ~ .,data = data_train,
+method="anova")
+bos_tree
+```
+
+***
+- Plot cp
+```{r}
+plotcp(bos_tree)
+```
+
+***
+- Prune tree
+```{r}
+bos_pruned <- prune(bos_tree, cp=0.25)
+bos_pruned
+```
+
+***
+Make predictions on the test data
+
+```{r}
+pred.bos.pruned <- predict(bos_pruned, data_test)
+rmse.pruned <- sqrt(mean( (data_test$crim-pred.bos.pruned)^2 ) )
+rmse.pruned
+```
+
+
+***
+- Apply bagging
+
+```{r}
+bos_bag <- bagging(crim ~ .,data = data_train,
+nbagg=100,coob=TRUE,
+control=rpart.control(cp=0))
+bos_bag
+```
+
+***
+- Make predictions on the test data
+
+```{r}
+pred.bos_bag <- predict(bos_bag, data_test)
+rmse.bos_bag <- sqrt(mean((data_test$crim-pred.bos_bag)^2))
+rmse.bos_bag
+```
+***
+- Apply random forest
+
+```{r}
+bos.rf <-randomForest(crim ~., data=data_train) 
+plot(bos.rf)
+```
+
+***
+- Define tuning grid
+```{r}
+hyper_grid <- expand.grid(
+  mtry       = seq(2, 12, by = 2),
+  node_size  = seq(2, 8, by = 2),
+  sample_size = c(.5, .70, .80),
+  OOB_RMSE   = 0
+)
+```
+
+
+***
+_ Apply tuning 
+```{r}
+for(i in 1:nrow(hyper_grid)) {
+  # train model
+  model <- ranger(
+    formula         = crim ~ ., 
+    data            = data_train, 
+    num.trees       = 300,
+    mtry            = hyper_grid$mtry[i],
+    min.node.size   = hyper_grid$node_size[i],
+    sample.fraction = hyper_grid$sample_size[i]  )
+  # add OOB error to grid
+  hyper_grid$OOB_RMSE[i] <- sqrt(model$prediction.error)
+}
+
+```
+
+***
+- Show tuning results
+```{r}
+hyper_grid %>% 
+  arrange(OOB_RMSE) %>% head(10)
+```
+
+***
+-  The best random forest model we have found and uses `mtry = 4`, `node size` of 6 observations, and a `sample size` of 70%.
+
+```{r}
+optimal_rf <- ranger(
+    formula         = crim ~ ., 
+    data            = data_train, 
+    num.trees       = 300,
+    mtry            = 4,
+    min.node.size   = 6,
+    sample.fraction = .7,
+    importance      = 'impurity')
+```
+
+
+***
+- Make predictions
+
+```{r}
+predict_rf <- predict(optimal_rf, data_test)$predictions
+rmse.rf <- sqrt(mean((data_test$crim - 
+                          predict_rf)^2))
+rmse.rf
+```
+
+***
+- Compare performance across models
+
+```{r}
+rmse.pruned
+rmse.bos_bag
+rmse.rf
+```
+
+***
+- Variable importance plot
+```{r}
+vip(optimal_rf)
+```
+
+
+

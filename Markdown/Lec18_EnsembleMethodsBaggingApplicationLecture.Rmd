@@ -1,0 +1,301 @@
+---
+title: "NBA 4920/6921 Lecture 18"
+subtitle: "Ensemble Methods: Bagging Application" 
+author: "Murat Unal"
+date: "11/02/2021"
+output: 
+  beamer_presentation:
+    colortheme: beaver
+    df_print: kable
+    fig_height: 3
+    fig_width: 5
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(comment = '', 
+                      warning = FALSE, 
+                      message = FALSE)
+```
+
+------------------------------------------------------------------------
+
+```{r message=FALSE, warning=FALSE}
+rm(list=ls())
+options(digits = 3, scipen = 999)
+library(tidyverse)
+library(ISLR)
+library(sandwich)
+library(jtools)
+library(caret)
+library(glmnet)
+library(rpart)
+library(rpart.plot)
+library(ROCR)
+library(ipred)
+library(vip)
+set.seed(2)
+```
+
+***
+```{r}
+Hitters <- ISLR::Hitters
+Hitters <- na.omit(Hitters)
+```
+
+```{r}
+train = sample(1:nrow(Hitters), 0.7*nrow(Hitters))
+```
+
+# Regression Tree
+
+```{r}
+hit_tree = rpart(Salary ~ .,data = Hitters[train,],
+                 method="anova")
+
+hit_tree$cptable
+```
+***
+```{r}
+plotcp(hit_tree)
+```
+
+***
+```{r}
+pruned_hit_tree <- prune(hit_tree, cp=0.24)
+pruned_hit_tree
+```
+
+
+****
+- Make predictions on the test data
+
+```{r}
+pred.tree <- predict(pruned_hit_tree, Hitters[-train,])
+rmse.tree <- sqrt(mean((Hitters[-train,"Salary"] -
+                          pred.tree)^2))
+rmse.tree
+```
+
+# Bagging
+
+- The `bagging()` function comes from the `ipred` package and we use `nbagg` to control how many iterations to include in the bagged model and `coob = TRUE` indicates to use the `OOB` error rate
+
+***
+```{r}
+hit_bag1 <- bagging(Salary ~ .,data = Hitters[train,],
+                   nbagg=100,coob=TRUE,
+                   control=rpart.control(cp=0))
+hit_bag1
+```
+
+***
+- Make predictions on the test data
+```{r}
+pred.bag1 <- predict(hit_bag1, Hitters[-train,])
+rmse.bag1 <- sqrt(mean((Hitters[-train,"Salary"] - 
+                          pred.bag1)^2))
+rmse.bag1
+```
+
+
+
+***
+- We can assess the error versus number of trees as below.
+
+```{r}
+# assess 10-500 bagged trees
+ntree <- seq(10,500,by=50)
+# create empty vector to store OOB RMSE values
+rmse <- vector(mode = "numeric", length = length(ntree))
+
+for (i in seq_along(ntree)) {
+  # perform bagged model
+  model <- bagging( formula = Salary ~ .,
+  data    = Hitters[train,],coob    = TRUE,
+  nbagg   = ntree[i])
+  # get OOB error
+  rmse[i] <- model$err}
+```
+
+***
+-  We see that the error is stabilizing at about 65 trees so we will likely not gain much improvement by simply bagging more trees.
+
+```{r}
+plot(ntree, rmse, type = 'l', lwd = 2)
+abline(v = 65, col = "red", lty = "dashed")
+```
+
+
+***
+- We can also apply bagging within `caret` and use 10-fold CV to see how well our ensemble will generalize
+
+```{r}
+hit_bag2 <- train(
+  Salary ~ .,
+  data = Hitters[train,],
+  method = "treebag",
+  trControl = trainControl(method = "cv", number = 10),
+  nbagg = 100,  
+  control = rpart.control(cp = 0))
+hit_bag2
+```
+
+
+***
+- Make predictions on the test data
+
+```{r}
+pred.bag2 <- predict(hit_bag2, Hitters[-train,])
+rmse.bag2 <- sqrt(mean((Hitters[-train,"Salary"] - 
+                          pred.bag2)^2))
+rmse.bag2
+```
+
+***
+- Compare prediction performance
+
+```{r}
+rmse.tree
+rmse.bag1
+rmse.bag2
+```
+
+***
+## Variable Importance
+\vspace{12pt}
+-We measure feature importance based on the sum of the reduction in the loss function (e.g., SSE) attributed to each variable at each split in a given tree.
+```{r}
+vip(hit_bag2)
+```
+
+# Exercise
+
+```{r}
+Carseats <- ISLR::Carseats
+Carseats = na.omit(Carseats)
+Carseats$Sales = as.factor(ifelse(Carseats$Sales <= 8,
+                                  "Low", "High"))
+train = sample(1:nrow(Carseats), 0.7*nrow(Carseats))
+```
+
+***
+```{r}
+sales_tree = rpart(Sales ~ .,data = Carseats[train,],
+                 method="class")
+
+sales_tree
+```
+
+***
+```{r}
+sales_tree$cptable
+```
+***
+```{r}
+plotcp(sales_tree)
+```
+
+
+***
+- Make predictions on the test data
+
+```{r}
+sales_pred <- data.frame("p_hat"=predict(sales_tree,
+                Carseats[-train,],type = "prob")[,"High"],
+                        "predicted"=predict(sales_tree, 
+                Carseats[-train,], type = "class"),
+                        "actual"=Carseats[-train,"Sales"])
+```
+
+***
+- Call the `confusion matrix`
+
+```{r}
+cm <- confusionMatrix(data=sales_pred$predicted,
+                reference=sales_pred$actual,
+                positive="High")
+cm$table
+```
+
+***
+- Performance metrics
+```{r}
+c(cm$overall[1],cm$byClass[c(1,2,7)])
+```
+
+***
+```{r}
+pruned_sales_tree <- prune(sales_tree, cp=0.15)
+pruned_sales_tree
+```
+***
+- Make predictions on the test data
+
+```{r}
+pruned_sales_pred <- data.frame("p_hat"=predict(pruned_sales_tree,
+                Carseats[-train,],type = "prob")[,"High"],
+                        "predicted"=predict(pruned_sales_tree, 
+                Carseats[-train,], type = "class"),
+                        "actual"=Carseats[-train,"Sales"])
+```
+
+***
+- Call the `confusion matrix`
+
+```{r}
+cm_pruned <- confusionMatrix(data=pruned_sales_pred$predicted,
+                reference=pruned_sales_pred$actual,
+                positive="High")
+cm_pruned$table
+```
+
+***
+- Performance metrics
+```{r}
+c(cm_pruned$overall[1],cm_pruned$byClass[c(1,2,7)])
+```
+
+***
+```{r}
+sales_bag <- bagging(Sales ~ .,data = Carseats[train,],
+                   nbagg=100,coob=TRUE,
+                   control=rpart.control(cp=0))
+sales_bag
+```
+
+***
+- Make predictions on the test data
+
+```{r}
+sales_pred_bag <- data.frame("p_hat"=predict(sales_bag,
+                Carseats[-train,],type = "prob")[,"High"],
+                        "predicted"=predict(sales_bag, 
+                Carseats[-train,], type = "class"),
+                        "actual"=Carseats[-train,"Sales"])
+```
+
+***
+- Call the `confusion matrix`
+
+```{r}
+cm_bag <- confusionMatrix(data=sales_pred_bag$predicted,
+                reference=sales_pred_bag$actual,
+                positive="High")
+cm_bag$table
+```
+
+***
+- Performance metrics
+```{r}
+c(cm$overall[1],cm$byClass[c(1,2,7)])
+c(cm_pruned$overall[1],cm_pruned$byClass[c(1,2,7)])
+c(cm_bag$overall[1],cm_bag$byClass[c(1,2,7)])
+```
+
+***
+- Variable Importance
+```{r}
+varImp(sales_bag)%>%arrange(-Overall)
+```
+
+

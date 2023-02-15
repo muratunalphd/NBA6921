@@ -1,0 +1,408 @@
+---
+title: "NBA 4920/6921 Lecture 6"
+subtitle: "Performance Metrics for Classification" 
+author: "Murat Unal"
+date: "9/16/2021"
+output: 
+  beamer_presentation:
+    colortheme: beaver
+    df_print: kable
+    fig_height: 3
+    fig_width: 5
+  bibliography: references.bib      
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(comment = '', 
+                      warning = FALSE, 
+                      message = FALSE)
+```
+
+# Agenda
+- Quiz 5
+
+- Reminders: Rmarkdown, Projects
+
+- Demonstrating Sampling
+
+-   Confusion matrix
+
+-   Receiver Operating Characteristic (ROC) Curve
+
+------------------------------------------------------------------------
+
+```{r message=FALSE, warning=FALSE}
+rm(list=ls())
+options(digits = 3, scipen = 999)
+library(tidyverse)
+library(ISLR)
+library(cowplot)
+library(ggcorrplot)
+library(stargazer)
+library(corrr)
+library(lmtest)
+library(sandwich)
+library(MASS)
+library(car)
+library(jtools)
+library(caret)
+library(ROCR)
+data <- ISLR::Default
+auto <- ISLR::Auto
+```
+
+# Sampling Works
+
+```{r echo=FALSE}
+set.seed(2)
+no.sample <- sample(rownames(filter(data,
+                default=="No")),0.05*nrow(data))
+
+default.sample <- rbind(data[no.sample,], 
+                   filter(data,default=="Yes"))
+
+p1 <- ggplot(default.sample, mapping=aes(x=balance,
+                    y=income,colour=default))+
+  theme(legend.position = "None")+
+  geom_point()
+
+p2 <- ggplot(data, mapping=aes(x=balance,
+                    y=income,colour=default))+
+  theme(legend.position = "None")+
+  geom_point()
+
+plot_grid(p1,p2,ncol = 2)
+```
+
+***
+
+```{r echo=FALSE} 
+h1 <- ggplot(filter(default.sample,default=="No"), mapping=aes(x=balance,y=..density..))+
+  geom_histogram(binwidth = 50)
+
+h2 <- ggplot(filter(data,default=="No"), mapping=aes(x=balance,y=..density..))+
+  geom_histogram(binwidth = 50)
+
+plot_grid(h1,h2,ncol = 2)
+```
+
+
+# Confusion Matrix
+
+Helps in diagnosing a model's prediction performance
+
+```{r echo=FALSE, fig.cap="", out.width="40%", out.height="20%"}
+knitr::include_graphics("ConfusionMatrix.pdf")
+```
+
+Number of observations $N = N00 + N10 + N01 + N11$
+
+-   \textcolor{blue}{True} Negative: $N00$: Actual Class 0, Predicted Class 0
+
+-   \textcolor{red}{False} Positive: $N01$: Actual Class 0, Predicted Class 1
+
+-   \textcolor{red}{False} Negative: $N10$: Actual Class 1, Predicted Class 0
+
+-   \textcolor{blue}{True} Positive: $N11$: Actual Class 1, Predicted Class 1
+
+------------------------------------------------------------------------
+
+```{r echo=FALSE, fig.cap="", out.width="40%", out.height="20%"}
+knitr::include_graphics("ConfusionMatrix.pdf")
+```
+
+-   \textcolor{red}{False} Positive Rate: The fraction of negative examples that are classified as positive: $\frac{N01}{N00 + N01}$
+
+-   \textcolor{red}{False} Negative Rate: The fraction of positive examples that are classified as negative: $\frac{N10}{N10 + N11}$
+
+------------------------------------------------------------------------
+
+```{r echo=FALSE, fig.cap="", out.width="40%", out.height="20%"}
+knitr::include_graphics("ConfusionMatrix.pdf")
+```
+
+\textbf{Accuracy}: The share of correct predictions = $\frac{N00 + N11}{N}$
+
+\textbf{Precision}: The share of predicted positives ($\hat{Y}=1$) that are correct. When the model predicts positive, how often is it correct?
+
+> $P(Y=1|\hat{Y}=1)$ = $\frac{N11}{N01 + N11}$ = $\frac{TP}{FP + TP}$
+
+\textbf{Recall/Sensitivity/True Positive Rate}: The share of positive outcomes ($Y=1$) that we correctly predict
+
+> $P(\hat{Y}=1 | Y=1)$ = $\frac{N11}{N10 + N11}$ = $\frac{TP}{FN + TP}$
+
+------------------------------------------------------------------------
+
+```{r echo=FALSE, fig.cap="", out.width="40%", out.height="20%"}
+knitr::include_graphics("ConfusionMatrix.pdf")
+```
+
+\textbf{Specificity}: The share of neg. outcomes ($Y=0$) that we correctly predict
+
+> $P(\hat{Y}=0 | Y=0)$ = $\frac{N00}{N01 + N00}$
+
+1 - \textbf{Specificity}= \textbf{False Positive Rate}
+
+***
+
+\textbf{F1 Score}: Seeks a balance between Precision and Recall. 
+
+A good F1 score means that you have low false positives and low false negatives. 
+
+An F1 score is considered perfect when it’s 1, while the model is a total failure when it’s 0.
+
+```{=tex}
+\begin{equation*}
+2* \frac{Precision*Recall}{Precision + Recall}
+\end{equation*}
+```
+
+------------------------------------------------------------------------
+
+So which criterion should we use? It depends.
+
+-   \textbf{Accuracy}: if all errors are equal.
+
+-   \textbf{Precision}: if you want to have high confidence in predicted positives.
+
+-   \textbf{Recall/Sensitivity}: if true positives are more valuable than true negatives.
+
+-   \textbf{F1 Score}: if we need to seek a balance between Precision and Recall and there is an uneven class distribution (large number of actual negatives)
+
+------------------------------------------------------------------------
+
+How did we do for predicting `default`?
+
+```{r}
+logit <- glm(default~balance+income+factor(student), 
+              family = "binomial",data =data)
+# Predictions
+p_hat <- predict(logit, type = "response")
+# Add the predictions to the data:
+data$p_hat <- p_hat
+```
+
+***
+Visualize the density distributions for each class
+
+```{r}
+ggplot(data,aes(y=..density..,x=p_hat,color=default))+
+  geom_freqpoly()
+```
+
+
+
+------------------------------------------------------------------------
+
+```{r}
+# Classify based on predictions
+data$default <- ifelse(data$default=="Yes",1,0)
+y_hat = as.numeric(p_hat >= 0.5)
+
+# Create the confusion matrix
+cm <- confusionMatrix(
+  # Our predictions
+  data = as.factor(y_hat),
+  # Truth
+  reference = as.factor(data$default),
+  positive = "1"
+)
+cm$table
+```
+
+------------------------------------------------------------------------
+
+```{r}
+cm$table
+cm$overall[c(1,5)]
+```
+
+We predicted 97.32% of the observations correctly.
+
+The default rate is only 3.33%. So, if we assigned "No" to everybody, we would have predicted 96.67% of the observations correctly.
+
+***
+```{r}
+cm$table
+cm$byClass[c(1,2,5,7)]
+```
+
+
+***
+What would happen if we changed the threshold from 0.5 to 0.25?
+
+```{r}
+# Classify based on predictions
+y_hat2 = as.numeric(p_hat >= 0.25)
+
+# Create the confusion matrix
+cm2 <- confusionMatrix(
+  # Our predictions
+  data = as.factor(y_hat2),
+  # Truth
+  reference = as.factor(data$default),
+  positive = "1"
+)
+cm2$table
+```
+
+***
+```{r}
+cm$overall[c(1)]
+cm2$overall[c(1)]
+cm$byClass[c(1,2,5,7)]
+cm2$byClass[c(1,2,5,7)]
+```
+
+
+
+
+# Receiver Operating Characteristic (ROC) Curve
+
+ROC is a plot of signal (True Positive Rate) against noise (False Positive Rate).
+
+
+
+```{r echo=FALSE, fig.cap="" , out.width="80%", out.height="60%"}
+
+knitr::include_graphics("ROC1.pdf")
+```
+
+------------------------------------------------------------------------
+
+The model performance is determined by looking at the area under the ROC curve (or AUC).
+
+The best possible AUC is 1 while the worst is 0.5 (the 45 degrees random line).
+
+```{r echo=FALSE, fig.cap="", out.width="80%", out.height="60%"}
+knitr::include_graphics("ROC2.pdf")
+```
+
+------------------------------------------------------------------------
+
+At its core AUC tells us how good we are in separating the two classes
+
+Example: Distribution of probabilities of two classes.
+
+```{r echo=FALSE, fig.cap="", out.width="80%", out.height="60%"}
+knitr::include_graphics("ROC3.pdf")
+```
+
+------------------------------------------------------------------------
+
+For any given threshold
+
+```{r echo=FALSE, fig.cap="", out.width="80%", out.height="60%"}
+knitr::include_graphics("ROC4.pdf")
+```
+
+------------------------------------------------------------------------
+
+For any given threshold we get \alert{false} positives
+
+```{r echo=FALSE, fig.cap="", out.width="80%", out.height="60%"}
+knitr::include_graphics("ROC5.pdf")
+```
+
+------------------------------------------------------------------------
+
+For any given threshold we get \alert{false} positives and \textcolor{blue}{true} positives
+
+```{r echo=FALSE, fig.cap="", out.width="80%", out.height="60%"}
+knitr::include_graphics("ROC6.pdf")
+```
+
+------------------------------------------------------------------------
+
+Moving through all possible thresholds generates the ROC curve
+
+```{r echo=FALSE, fig.cap="", out.width="80%", out.height="60%"}
+knitr::include_graphics("ROC1.pdf")
+```
+
+------------------------------------------------------------------------
+
+Increasing separation between positive and negative outcomes
+
+```{r echo=FALSE, fig.cap="", out.width="80%", out.height="60%"}
+knitr::include_graphics("ROC7.pdf")
+```
+
+------------------------------------------------------------------------
+
+Reduces error, shifts ROC, and increases AUC towards 1
+
+```{r echo=FALSE, fig.cap="", out.width="80%", out.height="60%"}
+knitr::include_graphics("ROC8.pdf")
+```
+
+------------------------------------------------------------------------
+
+Failure in separation between positive and negative outcomes
+
+```{r echo=FALSE, fig.cap="", out.width="80%", out.height="60%"}
+knitr::include_graphics("ROC11.pdf")
+```
+
+------------------------------------------------------------------------
+
+Increases error, shifts ROC, and decreases AUC towards 0.5
+
+```{r echo=FALSE, fig.cap="", out.width="80%", out.height="60%"}
+knitr::include_graphics("ROC12.pdf")
+```
+
+------------------------------------------------------------------------
+
+Accuracy vs. cut-off values
+
+```{r}
+pred = prediction(p_hat, data$default)
+perf = performance(pred, "acc")
+plot(perf)
+```
+
+------------------------------------------------------------------------
+
+ROC curve and AUC
+
+```{r, eval=FALSE}
+roc = performance(pred,"tpr","fpr")
+plot(roc, colorize = T, lwd = 2)
+abline(a = 0, b = 1) 
+auc = performance(pred, measure = "auc")
+subtitle = sprintf("AUC: %f", auc@y.values)
+mtext(side=3,line=1,at=0,adj=0,cex=0.7,subtitle)
+```
+
+------------------------------------------------------------------------
+
+ROC curve and AUC
+
+```{r, echo=FALSE}
+roc = performance(pred,"tpr","fpr")
+plot(roc, colorize = T, lwd = 2)
+abline(a = 0, b = 1) 
+auc = performance(pred, measure = "auc")
+subtitle = sprintf("AUC: %f", auc@y.values)
+mtext(side=3,line=1,at=0,adj=0,cex=0.7,subtitle)
+```
+
+# Sources
+
+1. The figures are from Ed Rubin's lecture notes.
+
+> Ed Rubin (2020)
+
+> Economics 524 (424): Prediction and Machine-Learning in Econometrics
+
+> Univ, of Oregon
+
+2. Notes are based on the book An Introduction to Statistical Learning (ISL)
+
+> Gareth James, Daniela Witten, Trevor Hastie,
+Robert Tibshirani (2017)
+
+> https://www.statlearning.com/
+
+

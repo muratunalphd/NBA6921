@@ -1,0 +1,649 @@
+---
+title: "NBA 4920/6921 Lecture 21"
+subtitle: "Support Vector Machines" 
+author: "Murat Unal"
+date: "11/11/2021"
+output: 
+  beamer_presentation:
+    colortheme: beaver
+    df_print: kable
+    fig_height: 3
+    fig_width: 4
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(comment = '', 
+                      warning = FALSE, 
+                      message = FALSE)
+```
+
+------------------------------------------------------------------------
+
+```{r message=FALSE, warning=FALSE}
+rm(list=ls())
+options(digits = 3, scipen = 999)
+library(tidyverse)
+library(ggplot2)
+library(ISLR)
+library(lmtest)
+library(sandwich)
+library(jtools)
+library(caret)
+library(ROCR)
+library(e1071)
+library(GGally)
+set.seed(1)
+```
+
+# Support Vector Machines
+
+- Are a general class of classifiers that
+essentially attempt to separate two classes of observations
+
+- The support vector machine generalizes a much simpler classifier—the
+maximal margin classifier
+
+- The maximal margin classifier attempts to separate the two classes in our
+prediction space using a single hyperplane.
+
+***
+## What's a hyperplane?
+\vspace{12pt}
+
+- A hyperplane is a dimensional subspace that is flat (no curvature)
+
+- In $p=1$ dimensions, a hyperplane is a point
+
+- In $p=2$ dimensions, a hyperplane is a line.
+
+- In $p=3$ dimensions, a hyperplane is a plane.
+
+***
+## Hyperplanes
+\vspace{12pt}
+
+- We can define a hyperplane in $p$ dimensions by constraining the linear
+combination of the $p$ dimensions.
+\vspace{12pt}
+
+- For example, in two dimensions a hyperplane is defined by
+$\beta_0+\beta_1X_1 + \beta_2X_2 = 0$
+which is just the equation for a line.
+\vspace{12pt}
+
+- The points $X=(X_1,X_2)$ that satisfy the equality live on the hyperplane.
+
+***
+## Separating hyperplanes
+\vspace{12pt}
+
+- More generally, in $p$ dimensions, we define a hyperplane by
+$\beta_0+\beta_1X_1 + \beta_2X_2 + \cdots + \beta_pX_p = 0$
+\vspace{12pt}
+
+- If $X=(X_1,X_2,\dots,X_p)$ satisfies the equality, it is on the hyperplane
+\vspace{12pt}
+
+- If $\beta_0+\beta_1X_1 + \beta_2X_2 + \cdots + \beta_pX_p > 0$, then $X$ is __above__ the hyperplane
+\vspace{12pt}
+
+- If $\beta_0+\beta_1X_1 + \beta_2X_2 + \cdots + \beta_pX_p < 0$, then $X$ is __below__ the hyperplane
+\vspace{12pt}
+
+- The hyperplane separates the $p$-dimensional space into two __halves__
+
+***
+- A separating hyperplane in two dimensions: $1 + 2X_1 + 3X_2=0$
+```{r echo=FALSE, fig.cap=""}
+knitr::include_graphics("9.1.pdf")
+```
+
+***
+## Separating hyperplanes and classification 
+\vspace{12pt}
+
+- To make a prediction for observation $(x^0,y^0)$   
+\vspace{12pt}
+
+- We classify points that live __above__ of the plane as one class   
+\vspace{12pt}
+
+- If $f(X)= \beta_0+\beta_1X_1 + \beta_2X_2 + \cdots + \beta_pX_p > 0$, then $\hat{y}^0=Class 1$   
+\vspace{12pt}
+
+- We classify points that live __below__ of the plane as one class   
+\vspace{12pt}
+
+- If $f(X)= \beta_0+\beta_1X_1 + \beta_2X_2 + \cdots + \beta_pX_p < 0$, then $\hat{y}^0=Class 2$   
+\vspace{12pt}
+
+- This strategy assumes a separating hyperplane exists   
+
+***
+- If a separating hyperplane exists, then it defines a binary classifier.
+- Moreover, many separating hyperplanes exist.
+
+```{r echo=FALSE, fig.cap=""}
+knitr::include_graphics("9.2.pdf")
+```
+
+***
+- We can also make use of the magnitude of $f(x^0)$ 
+\vspace{12pt}
+
+- If $f(x^0)$ is far from zero, then this means that $x^0$ lies far from the hyperplane,
+and so we can be confident about our class assignment for $x^0$.
+\vspace{12pt}
+
+- On the other hand, if $f(x^0)$ is close to zero, then this means that $x^0$ is located near the hyperplane, and so we are less certain about the class assignment for $x^0$.
+
+***
+## Which separating hyperplane
+\vspace{12pt}
+
+- How do we choose between the possible hyperplanes?
+\vspace{12pt}
+- One solution: Choose the separating hyperplane that is __farthest__ from
+the training data points—maximizing separation.
+
+***
+## The maximal margin hyperplane
+\vspace{12pt}
+
+- Separates the two classes of obsevations 
+\vspace{12pt}
+- Maximizes the __margin__—the distance to the nearest observation,
+where distance is a point's perpendicular distance to the hyperplane
+
+***
+The maximal margin hyperplane...
+```{r echo=FALSE, fig.cap=""}
+knitr::include_graphics("maxmargin1.pdf")
+```
+
+***
+...maximizes the margin between the hyperplane and training data...
+```{r echo=FALSE, fig.cap=""}
+knitr::include_graphics("maxmargin2.pdf")
+```
+
+***
+...and is supported by three equidistant observations—the support vectors.
+```{r echo=FALSE, fig.cap=""}
+knitr::include_graphics("maxmargin3.pdf")
+```
+
+***
+- Formally, the maximal margin hyperplane solves the problem:
+
+- Maximize the margin $M$ over the set of ${\beta_0,\beta_1,\cdots,\beta_p,M}$ such that
+
+\begin{equation}
+\sum^p_{j=1} \beta^2_j=1
+\end{equation}
+
+\begin{equation}
+y_i(\beta_0+\beta_1x_{i1} + \beta_2x_{i2} + \cdots + \beta_px_{ip}) \geq M
+\end{equation}
+
+- (2) Ensures we separate (classify) observations correctly.
+- (1) Allows us to interpret (2) as "distance from the hyperplane"
+
+***
+## The maximal margin classifier
+\vspace{12pt}
+- The maximal margin hyperplane produces the maximal margin classifier
+\vspace{12pt}
+- The decision boundary only uses the support vectors—very sensitive
+```{r echo=FALSE, fig.cap=""}
+knitr::include_graphics("9.5.pdf")
+```
+- This classifier can struggle in large dimensions
+
+***
+- In many cases no separating hyperplane exists, and so there is no maximal
+margin classifier
+```{r echo=FALSE, fig.cap=""}
+knitr::include_graphics("9.4.pdf")
+```
+
+***
+- However, we can extend the concept of a separating hyperplane in order to
+develop a hyperplane that almost separates the classes, using a so-called
+__soft margin__. 
+\vspace{12pt}
+
+- The margin is __soft__ because it can be violated by some
+of the training observations.
+
+- The generalization of the maximal margin classifier to the
+non-separable case is known as the __support vector classifier__
+
+***
+## Support Vector Classifier
+```{r echo=FALSE, fig.cap=""}
+knitr::include_graphics("9.6.pdf")
+```
+
+- The hyperplane is shown as a solid line and the margins are shown as dashed lines
+
+- Observations 3, 4, 5, and 6 are on the correct side of the
+margin,  2 is on the margin, and 1 is on the wrong side of
+the margin
+
+- Observations 7 and 10 are on the correct side of
+the margin,  9 is on the margin, and 8 is on the wrong side
+of the margin.
+
+***
+- The support vector classifier classifies a test observation depending on
+which side of a hyperplane it lies. 
+\vspace{12pt}
+
+- The hyperplane is chosen to correctly separate most of the training observations into the two classes, but may
+misclassify a few observations
+
+***
+- The support vector classifier selects a hyperplane by solving the problem
+
+- Maximize the margin $M$ over the set of ${\beta_0,\beta_1,\cdots,\beta_p,\epsilon_1,\cdots,\epsilon_n, M}$ such that
+
+\begin{equation}
+\sum^p_{j=1} \beta^2_j=1
+\end{equation}
+
+\begin{equation}
+y_i(\beta_0+\beta_1x_{i1} + \beta_2x_{i2} + \cdots + \beta_px_{ip}) \geq M(1-\epsilon_i)
+\end{equation}
+
+\begin{equation}
+\epsilon_i \geq 0, \sum^n_{i=1} \epsilon_i \leq C
+\end{equation}
+
+- $M$ is the width of the margin; we seek to maximize this quantity
+
+- $\epsilon_i$ are __slack variables__ that allow $i$ to violate the margin or hyperplane
+
+- $C$ is our budget for these violations
+
+****
+
+- The slack variable $\epsilon_i$ tells us where the $i$th observation is located,
+relative to the hyperplane and relative to the margin
+\vspace{12pt}
+
+- If $\epsilon_i= 0$ then the $i$th observation is on the correct side of the margin
+\vspace{12pt}
+
+- If $\epsilon_i> 0$ then the $i$th observation is on the wrong side of the margin, and
+we say that the $i$th observation has violated the margin.
+\vspace{12pt}
+
+- If $\epsilon_i> 1$ then the $i$th observation is on the wrong side of the hyperplane
+
+***
+```{r echo=FALSE, fig.cap=""}
+knitr::include_graphics("svm1.pdf")
+```
+
+***
+```{r echo=FALSE, fig.cap=""}
+knitr::include_graphics("svm2.pdf")
+```
+
+***
+```{r echo=FALSE, fig.cap=""}
+knitr::include_graphics("svm3.pdf")
+```
+
+***
+```{r echo=FALSE, fig.cap=""}
+knitr::include_graphics("svm4.pdf")
+```
+
+***
+```{r echo=FALSE, fig.cap=""}
+knitr::include_graphics("svm5.pdf")
+```
+
+***
+```{r echo=FALSE, fig.cap=""}
+knitr::include_graphics("svm6.pdf")
+```
+
+***
+- It turns out that only observations that either lie on the margin or that
+violate the margin will affect the hyperplane, and hence the classifier obtained.
+\vspace{12pt}
+
+- In other words, an observation that lies strictly on the correct side
+of the margin does not affect the support vector classifier!
+\vspace{12pt}
+
+- Changing the
+position of that observation would not change the classifier at all, provided
+that its position remains on the correct side of the margin. 
+\vspace{12pt}
+
+- Observations
+that lie directly on the margin, or on the wrong side of the margin for
+their class, are known as __support vectors__. 
+\vspace{12pt}
+
+- These observations do affect the support vector classifier.
+
+
+***
+```{r echo=FALSE, fig.cap=""}
+knitr::include_graphics("svm7.pdf")
+```
+
+***
+- $C$ bounds the sum of the $\epsilon_i$’s, and so it determines the number and severity of the violations to the margin (and to the hyperplane) that we will tolerate.
+\vspace{12pt}
+
+- We can
+think of $C$ as a budget for the amount that the margin can be violated
+by the $n$ observations.
+\vspace{12pt}
+
+- If $C = 0$ then there is no budget for violations to
+the margin, and it must be the case that $\epsilon_1 = \cdots = \epsilon_n = 0$, in which
+case we're back to the maximal margin hyperplane optimization
+problem
+
+***
+- As the budget $C$ increases, we become more tolerant of
+violations to the margin, and so the margin will widen. 
+\vspace{12pt}
+
+- Conversely, as $C$
+decreases, we become less tolerant of violations to the margin and so the
+margin narrows.
+\vspace{12pt}
+
+- In practice, $C$ is treated as a tuning parameter that is generally chosen via
+cross-validation. 
+
+***
+- As with the tuning parameters that we have seen throughout
+this class, $C$ controls the bias-variance trade-off of the statistical learning
+technique. 
+\vspace{12pt}
+
+- When $C$ is small, we seek narrow margins that are rarely
+violated; this amounts to a classifier that is highly fit to the data, which
+may have low bias but high variance. 
+\vspace{12pt}
+
+- On the other hand, when $C$ is larger,
+the margin is wider and we allow more violations to it; this amounts to
+fitting the data less hard and obtaining a classifier that is potentially more
+biased but may have lower variance.
+
+***
+```{r echo=FALSE, fig.cap=""}
+knitr::include_graphics("9.7.pdf")
+```
+
+***
+- The `svm()` function from the `e1071` package can be used to fit a
+support vector classifier when the argument `kernel="linear` is used
+
+- A cost argument allows us to specify the cost of
+a violation to the margin. When the cost argument is small, then the margins
+will be wide and many support vectors will be on the margin or will
+violate the margin. 
+
+- When the cost argument is large, then the margins will
+be narrow and there will be few support vectors on the margin or violating the margin.
+
+***
+## Application
+
+```{r}
+x=matrix (rnorm (20*2) , ncol =2)
+y=c(rep (-1,10) , rep (1 ,10) )
+x[y==1 ,]= x[y==1,] + 1.5
+data=data.frame(x=x,y=as.factor (y))
+```
+
+***
+- The two classes are linearly separable
+
+```{r echo=FALSE}
+ggplot(data,aes(x=x.1,y=x.2, colour=y))+
+geom_point()+theme(legend.position = "None")
+```
+
+***
+- We fit the support
+vector classifier and plot the resulting hyperplane, using a very large value
+of cost so that no observations are misclassified
+```{r}
+svmfit =svm(y ~ ., data=data , kernel ="linear", 
+            cost =10000, scale =FALSE)
+summary(svmfit)
+```
+
+***
+```{r}
+make.grid = function(x, n = 30){
+  grange = apply(x, 2, range)
+  x1 = seq(from = grange[1,1], to = grange[2,1], length = n)
+  x2 = seq(from = grange[1,2], to = grange[2,2], length = n)
+  expand.grid(x.1 = x1, x.2 = x2)}
+xgrid = make.grid(x)
+```
+
+***
+- The margin is very narrow. It seems likely that this model will perform
+poorly on test data.
+
+```{r echo=FALSE}
+ygrid=predict(svmfit, xgrid)
+plot.data <- data.frame(x.1=xgrid$x.1,x.2=xgrid$x.2,y=ygrid)
+beta = drop(t(svmfit$coefs)%*%x[svmfit$index,])
+beta0 = svmfit$rho 
+ggplot(plot.data, aes(x=x.1,y=x.2, colour=y),size=.5)+
+  geom_point()+
+  geom_point(data=data, aes(x=x.1,y=x.2, colour=y), size=5)+
+  geom_point(data=data[svmfit$index,],aes(x=x.1,y=x.2),colour="black", shape=0, size=5)+
+  geom_abline(slope =-beta[1]/beta[2] , intercept = beta0/beta[2])+
+  geom_abline(slope =-beta[1]/beta[2] , intercept = (beta0-1)/beta[2],
+              linetype="dashed")+
+  geom_abline(slope =-beta[1]/beta[2] , intercept = (beta0+1)/beta[2],
+              linetype="dashed")+
+    theme(legend.position = "None")
+
+```
+
+***
+- Let's try a smaller value of cost
+
+```{r}
+svmfit =svm(y ~ ., data=data , kernel ="linear", 
+            cost =1, scale =FALSE)
+summary(svmfit)
+```
+
+***
+```{r}
+make.grid = function(x, n = 30){
+  grange = apply(x, 2, range)
+  x1 = seq(from = grange[1,1], to = grange[2,1], length = n)
+  x2 = seq(from = grange[1,2], to = grange[2,2], length = n)
+  expand.grid(x.1 = x1, x.2 = x2)}
+xgrid = make.grid(x)
+```
+
+***
+- Using `cost=1`, we misclassify a training observation, but we also obtain
+a much wider margin and make use of seven support vectors. It seems
+likely that this model will perform better on test data than the model with larger cost
+
+```{r echo=FALSE}
+ygrid=predict(svmfit, xgrid)
+plot.data <- data.frame(x.1=xgrid$x.1,x.2=xgrid$x.2,y=ygrid)
+beta = drop(t(svmfit$coefs)%*%x[svmfit$index,])
+beta0 = svmfit$rho 
+ggplot(plot.data, aes(x=x.1,y=x.2, colour=y),size=.5)+
+  geom_point()+
+  geom_point(data=data, aes(x=x.1,y=x.2, colour=y), size=5)+
+  geom_point(data=data[svmfit$index,],aes(x=x.1,y=x.2),colour="black", shape=0, size=5)+
+  geom_abline(slope =-beta[1]/beta[2] , intercept = beta0/beta[2])+
+  geom_abline(slope =-beta[1]/beta[2] , intercept = (beta0-1)/beta[2],
+              linetype="dashed")+
+  geom_abline(slope =-beta[1]/beta[2] , intercept = (beta0+1)/beta[2],
+              linetype="dashed")+
+    theme(legend.position = "None")
+```
+
+
+
+***
+```{r}
+x=matrix (rnorm (20*2) , ncol =2)
+y=c(rep (-1,10) , rep (1 ,10) )
+x[y==1 ,]= x[y==1,] + 1
+data=data.frame(x=x, y=as.factor (y))
+
+xtest=matrix (rnorm (20*2) , ncol =2)
+ytest=sample (c(-1,1) , 20, rep=TRUE)
+xtest[ytest ==1 ,]= xtest[ytest ==1,] + 1
+testdata =data.frame (x=xtest , y=as.factor (ytest))
+```
+
+***
+- The two classes are not linearly separable
+```{r}
+ggplot(data,aes(x=x.1,y=x.2, colour=y))+
+  geom_point()+
+    theme(legend.position = "None")
+```
+
+***
+```{r}
+svmfit =svm(y ~ ., data=data , kernel ="linear", 
+            cost =10, scale =FALSE)
+summary(svmfit)
+```
+
+***
+```{r}
+make.grid = function(x, n = 30){
+  grange = apply(x, 2, range)
+  x1 = seq(from = grange[1,1], to = grange[2,1], length = n)
+  x2 = seq(from = grange[1,2], to = grange[2,2], length = n)
+  expand.grid(x.1 = x1, x.2 = x2)}
+xgrid = make.grid(x)
+```
+
+***
+```{r echo=FALSE}
+ygrid=predict(svmfit, xgrid)
+plot.data <- data.frame(x.1=xgrid$x.1,x.2=xgrid$x.2,y=ygrid)
+beta = drop(t(svmfit$coefs)%*%x[svmfit$index,])
+beta0 = svmfit$rho 
+ggplot(plot.data, aes(x=x.1,y=x.2, colour=y),size=.05)+
+  geom_point()+
+  geom_point(data=data, aes(x=x.1,y=x.2, colour=y), size=5)+
+  geom_point(data=data[svmfit$index,],aes(x=x.1,y=x.2),colour="black", shape=0, size=5)+
+  geom_abline(slope =-beta[1]/beta[2] , intercept = beta0/beta[2])+
+  geom_abline(slope =-beta[1]/beta[2] , intercept = (beta0-1)/beta[2],
+              linetype="dashed")+
+  geom_abline(slope =-beta[1]/beta[2] , intercept = (beta0+1)/beta[2],
+              linetype="dashed")+
+    theme(legend.position = "None")
+```
+
+
+***
+- Let's use a smaller cost 
+```{r}
+svmfit2 =svm(y ~ ., data=data , kernel ="linear", 
+            cost =0.1,scale =FALSE )
+summary(svmfit2)
+```
+
+***
+```{r echo=FALSE}
+ygrid=predict(svmfit2, xgrid)
+plot.data <- data.frame(x.1=xgrid$x.1,x.2=xgrid$x.2,y=ygrid)
+beta = drop(t(svmfit2$coefs)%*%x[svmfit2$index,])
+beta0 = svmfit2$rho 
+ggplot(plot.data, aes(x=x.1,y=x.2, colour=y),size=.05)+
+  geom_point()+
+  geom_point(data=data, aes(x=x.1,y=x.2, colour=y), size=5)+
+  geom_point(data=data[svmfit2$index,],aes(x=x.1,y=x.2),colour="black", shape=0, size=5)+
+  geom_abline(slope =-beta[1]/beta[2] , intercept = beta0/beta[2])+
+  geom_abline(slope =-beta[1]/beta[2] , intercept = (beta0-1)/beta[2],
+              linetype="dashed")+
+  geom_abline(slope =-beta[1]/beta[2] , intercept = (beta0+1)/beta[2],
+              linetype="dashed")+
+    theme(legend.position = "None")
+```
+
+
+***
+- The `e1071` library includes a built-in function, `tune()`, to perform cross validation. 
+
+- By default, `tune()` performs ten-fold cross-validation on a set
+of models of interest.
+
+```{r}
+tune.out = tune(svm ,y~.,data=data ,kernel ="linear",
+ranges =list(cost=c(0.001 , 0.01, 0.1, 1,5,10,100) ))
+bestmod =tune.out$best.model
+bestmod
+```
+***
+- Make predictions on the test data
+
+```{r}
+ypred=predict(bestmod ,testdata )
+cm <- confusionMatrix(data=ypred,
+                reference=testdata$y,
+                positive="1")
+cm$table
+c(cm$overall[1],cm$byClass[c(1,2,7)])
+```
+# Exercise
+
+```{r}
+cars_train <- read.csv("cayugacars_train.csv")
+cars_test <- read.csv("cayugacars_test.csv")
+cars_train <- select(cars_train,-c(10:ncol(cars_train)))
+cars_test <- select(cars_test,-c(10:ncol(cars_test)))
+```
+
+***
+- Create pairwise correlations
+```{r echo=FALSE}
+ggpairs(cars_test,columns=2:4,aes(color=customer_bid),
+        upper = list(continuous = wrap("cor", size = 2.5)),
+        diag = list(continuous = "blankDiag"))
+```
+
+***
+- Tune the svm model
+
+```{r}
+tune.cars = tune(svm ,customer_bid~.,data=cars_train ,kernel ="linear",
+ranges =list(cost=c(0.001,0.01,0.05,0.1,1,10,100) ))
+bestmod =tune.cars$best.model
+bestmod
+```
+***
+- Make predictions on the test data and call the confusion matrix
+
+```{r}
+ypred=predict(bestmod , cars_test )
+cm <- confusionMatrix(data=ypred,
+                reference=cars_test$customer_bid,
+                positive="Yes")
+cm$table
+c(cm$overall[1],cm$byClass[c(1,2,7)])
+```
+
+

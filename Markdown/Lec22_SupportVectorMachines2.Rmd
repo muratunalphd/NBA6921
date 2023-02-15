@@ -1,0 +1,582 @@
+---
+title: "NBA 4920/6921 Lecture 22"
+subtitle: "Support Vector Machines 2" 
+author: "Murat Unal"
+date: "11/11/2021"
+output: 
+  beamer_presentation:
+    colortheme: beaver
+    df_print: kable
+    fig_height: 3
+    fig_width: 4
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(comment = '', 
+                      warning = FALSE, 
+                      message = FALSE)
+```
+
+------------------------------------------------------------------------
+
+```{r message=FALSE, warning=FALSE}
+rm(list=ls())
+options(digits = 3, scipen = 999)
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+library(ISLR)
+library(lmtest)
+library(sandwich)
+library(jtools)
+library(caret)
+library(ROCR)
+library(e1071)
+library(GGally)
+set.seed(1)
+```
+
+# Support Vector Machines
+
+- Are a general class of classifiers that
+essentially attempt to separate two classes of observations
+
+- The support vector machine generalizes a much simpler classifier—the
+maximal margin classifier
+
+- The maximal margin classifier attempts to separate the two classes in our
+prediction space using a single hyperplane.
+
+
+***
+## The maximal margin classifier
+\vspace{12pt}
+- The maximal margin hyperplane produces the maximal margin classifier
+\vspace{12pt}
+- The decision boundary only uses the support vectors—very sensitive
+```{r echo=FALSE, fig.cap=""}
+knitr::include_graphics("9.5.pdf")
+```
+- This classifier can struggle in large dimensions
+
+***
+- In many cases no separating hyperplane exists, and so there is no maximal
+margin classifier
+```{r echo=FALSE, fig.cap=""}
+knitr::include_graphics("9.4.pdf")
+```
+
+***
+- However, we can extend the concept of a separating hyperplane in order to
+develop a hyperplane that almost separates the classes, using a so-called
+__soft margin__. 
+\vspace{12pt}
+
+- The margin is __soft__ because it can be violated by some
+of the training observations.
+
+- The generalization of the maximal margin classifier to the
+non-separable case is known as the __support vector classifier__
+
+***
+## Support Vector Classifier
+```{r echo=FALSE, fig.cap=""}
+knitr::include_graphics("9.6.pdf")
+```
+
+- The hyperplane is shown as a solid line and the margins are shown as dashed lines
+
+- Observations 3, 4, 5, and 6 are on the correct side of the
+margin,  2 is on the margin, and 1 is on the wrong side of
+the margin
+
+- Observations 7 and 10 are on the correct side of
+the margin,  9 is on the margin, and 8 is on the wrong side
+of the margin.
+
+***
+- The support vector classifier classifies a test observation depending on
+which side of a hyperplane it lies. 
+\vspace{12pt}
+
+- The hyperplane is chosen to correctly separate most of the training observations into the two classes, but may
+misclassify a few observations
+
+***
+- The support vector classifier selects a hyperplane by solving the problem
+
+- Maximize the margin $M$ over the set of ${\beta_0,\beta_1,\cdots,\beta_p,\epsilon_1,\cdots,\epsilon_n, M}$ such that
+
+\begin{equation}
+\sum^p_{j=1} \beta^2_j=1
+\end{equation}
+
+\begin{equation}
+y_i(\beta_0+\beta_1x_{i1} + \beta_2x_{i2} + \cdots + \beta_px_{ip}) \geq M(1-\epsilon_i)
+\end{equation}
+
+\begin{equation}
+\epsilon_i \geq 0, \sum^n_{i=1} \epsilon_i \leq C
+\end{equation}
+
+- $M$ is the width of the margin; we seek to maximize this quantity
+
+- $\epsilon_i$ are __slack variables__ that allow $i$ to violate the margin or hyperplane
+
+- $C$ is our budget for these violations
+
+****
+
+- The slack variable $\epsilon_i$ tells us where the $i$th observation is located,
+relative to the hyperplane and relative to the margin
+\vspace{12pt}
+
+- If $\epsilon_i= 0$ then the $i$th observation is on the correct side of the margin
+\vspace{12pt}
+
+- If $\epsilon_i> 0$ then the $i$th observation is on the wrong side of the margin, and
+we say that the $i$th observation has violated the margin.
+\vspace{12pt}
+
+- If $\epsilon_i> 1$ then the $i$th observation is on the wrong side of the hyperplane
+
+
+
+***
+```{r echo=FALSE, fig.cap=""}
+knitr::include_graphics("svm7.pdf")
+```
+
+***
+- $C$ bounds the sum of the $\epsilon_i$’s, and so it determines the number and severity of the violations to the margin (and to the hyperplane) that we will tolerate.
+\vspace{12pt}
+
+- We can
+think of $C$ as a budget for the amount that the margin can be violated
+by the $n$ observations.
+\vspace{12pt}
+
+- If $C = 0$ then there is no budget for violations to
+the margin, and it must be the case that $\epsilon_1 = \cdots = \epsilon_n = 0$, in which
+case we're back to the maximal margin hyperplane optimization
+problem
+
+***
+- As the budget $C$ increases, we become more tolerant of
+violations to the margin, and so the margin will widen. 
+\vspace{12pt}
+
+- Conversely, as $C$
+decreases, we become less tolerant of violations to the margin and so the
+margin narrows.
+\vspace{12pt}
+
+- In practice, $C$ is treated as a tuning parameter that is generally chosen via
+cross-validation. 
+
+***
+```{r echo=FALSE, fig.cap=""}
+knitr::include_graphics("9.7.pdf")
+```
+
+# The Support Vector Machine
+
+- The support vector classifier is a natural approach for classification in the
+two-class setting, if the boundary between the two classes is linear
+
+- In practice we are often faced with non-linear class boundaries
+
+```{r echo=FALSE, fig.cap=""}
+knitr::include_graphics("9.8.pdf")
+```
+
+***
+- In the regression setting, we increase our model's flexiblity by adding
+polynomials in our predictors
+
+- We can apply a very similar idea to the support vector classifier
+
+- The new classifier has a linear decision boundary in the expanded space.
+
+- The boundary is going to be nonlinear within the original space
+
+***
+```{r echo=FALSE, fig.cap=""}
+knitr::include_graphics("svm_kernel1.jpg")
+```
+
+***
+```{r echo=FALSE, fig.cap=""}
+knitr::include_graphics("svm_kernel2.png")
+```
+
+
+***
+- The support vector machine (SVM) is an extension of the support vector
+classifier that results from enlarging the feature space in a specific way, using __kernels__.
+
+- The main
+idea is that we may want to enlarge our feature space in order to accommodate a non-linear boundary between the classes. 
+
+- The kernel approach is  an efficient computational
+approach for enacting this idea.
+
+***
+## Dot products
+
+- The solution to the support vector classifier only involves the
+dot product of the observations.
+
+- The dot product of two vectors is defined as
+
+\begin{equation*}
+a \cdot b = \sum_{i=1}^p a_ib_i = a_1b_1 + a_1b_1+ \cdots + a_pb_p 
+\end{equation*}
+
+- Dot product is a measure of similarity between two vectors
+
+***
+
+- The linear support vector classifier can be written as
+
+\begin{equation*}
+f(x) = \beta_0 + \sum_{i=1}^n \alpha_i = x \cdot x_i
+\end{equation*}
+
+
+
+- We fit the $n$ $\alpha_i$ and $\beta_0$ with the training observations' dot products.
+
+- It turns out that $\alpha_i \neq 0$ only for support-vector observations.
+
+***
+- The linear support vector classifier can be written as
+
+\begin{equation*}
+f(x) = \beta_0 + \sum_{i=1}^n \alpha_i = x \cdot x_i
+\end{equation*}
+
+- Support vector machines generalize this linear classifier by simply replacing $x \cdot x_i$ with __kernel functions__, $K(x_i,x_i')$
+
+***
+- __Kernel functions__ offer alternative ways to measure the similarity between observations
+
+1. Linear kernel : $K(x_i,x_i') = \sum_{j=1}^p x_{ij}x_{i'j}$
+\vspace{12pt}
+2. Polynomial kernel : $K(x_i,x_i') = (1+ \sum_{j=1}^p x_{ij}x_{i'j})^2$
+\vspace{12pt}
+3. Radial kernel :$K(x_i,x_i') = exp(-\gamma\sum_{j=1}^p (x_{ij}-x_{i'j})^2)$
+
+***
+- Left: An SVM with a polynomial kernel of degree 3 is applied to
+the non-linear data.
+
+- Right: An SVM with a radial kernel is applied. In this example, either kernel is capable of capturing the decision boundary.
+
+```{r echo=FALSE, fig.cap=""}
+knitr::include_graphics("9.9.pdf")
+```
+
+***
+- Why use __kernel functions__ if we instead could simply enlarge the feature space using functions on the original features?
+
+- Computational advantage.
+
+- For some kernels, such as the
+radial kernel, the feature space is implicit and infinite-dimensional,
+so we could never do the computations there anyway!
+
+
+# Application
+
+```{r}
+x=matrix (rnorm (200*2) , ncol =2)
+y=c(rep (1,150) , rep (2 ,50) )
+x[1:100,]= x[1:100,] + 2.5
+x[101:150,]= x[101:150,] - 2.5
+data=data.frame(x=x,y=as.factor(y))
+train = sample(200,100)
+data_train = data[train,]
+data_test = data[-train,]
+```
+
+***
+- The two classes are not linearly separable
+
+```{r echo=FALSE}
+ggplot(data,aes(x=x.1,y=x.2, colour=y))+
+geom_point()+theme(legend.position = "None")
+```
+
+***
+## Linear kernel
+
+```{r}
+svm.linear = tune(svm,y~ ., data=data_train , kernel ="linear", 
+            ranges =list(cost=10^seq(-3, 2, by = 0.5)))
+summary(svm.linear)
+svmfit <- svm.linear$best.model
+```
+
+***
+```{r}
+plot(svmfit, data_train)
+```
+
+***
+```{r}
+make.grid = function(x, n = 30){
+  grange = apply(x, 2, range)
+  x1 = seq(from = grange[1,1], to = grange[2,1], length = n)
+  x2 = seq(from = grange[1,2], to = grange[2,2], length = n)
+  expand.grid(x.1 = x1, x.2 = x2)}
+xgrid = make.grid(x)
+```
+
+***
+
+```{r echo=FALSE}
+ygrid=predict(svmfit, xgrid)
+plot.data <- data.frame(x.1=xgrid$x.1,x.2=xgrid$x.2,y=ygrid)
+ggplot(plot.data, aes(x=x.1,y=x.2, colour=y),size=.5)+
+  geom_point()+
+  geom_point(data=data_train, aes(x=x.1,y=x.2, colour=y), size=5)+
+  geom_point(data=data_train[svmfit$index,],aes(x=x.1,y=x.2),colour="black", shape=0, size=5)+
+    theme(legend.position = "None")
+
+```
+
+***
+- Make predictions on the test data
+
+```{r}
+ypred=predict(svmfit,data_test )
+cm.linear <- confusionMatrix(data=ypred,
+                reference=data_test$y,
+                positive="2")
+cm.linear$table
+cm.linear$overall[1]
+```
+
+
+***
+## Polynomial kernel
+
+```{r}
+svm.poly = tune(svm,y~ ., data=data_train , kernel ="polynomial", 
+            ranges =list(cost=10^seq(-3, 2, by = 0.5),
+                         degree=c(1,2,3,4,5)))
+summary(svm.poly)
+svmfit <- svm.poly$best.model
+```
+
+***
+```{r}
+plot(svmfit,data_train)
+
+```
+
+***
+```{r}
+make.grid = function(x, n = 30){
+  grange = apply(x, 2, range)
+  x1 = seq(from = grange[1,1], to = grange[2,1], length = n)
+  x2 = seq(from = grange[1,2], to = grange[2,2], length = n)
+  expand.grid(x.1 = x1, x.2 = x2)}
+xgrid = make.grid(x)
+```
+
+***
+
+```{r echo=FALSE}
+ygrid=predict(svmfit, xgrid)
+plot.data <- data.frame(x.1=xgrid$x.1,x.2=xgrid$x.2,y=ygrid)
+ggplot(plot.data, aes(x=x.1,y=x.2, colour=y),size=.5)+
+  geom_point()+
+  geom_point(data=data_train, aes(x=x.1,y=x.2, colour=y), size=5)+
+  geom_point(data=data_train[svmfit$index,],aes(x=x.1,y=x.2),colour="black", shape=0, size=5)+
+    theme(legend.position = "None")
+
+```
+
+***
+- Make predictions on the test data
+
+```{r}
+ypred=predict(svmfit,data_test )
+cm.poly <- confusionMatrix(data=ypred,
+                reference=data_test$y,
+                positive="2")
+cm.poly$table
+cm.poly$overall[1]
+```
+
+
+***
+## Radial kernel
+
+```{r}
+svm.rad = tune(svm,y~ ., data=data_train , kernel ="radial", 
+            ranges =list(cost=10^seq(-3, 2, by = 0.5),
+                         gamma=c(0.5,1,2,3,4)))
+summary(svm.rad)
+svmfit <- svm.rad$best.model
+```
+
+***
+```{r}
+plot(svmfit,data_train)
+
+```
+
+***
+```{r}
+make.grid = function(x, n = 30){
+  grange = apply(x, 2, range)
+  x1 = seq(from = grange[1,1], to = grange[2,1], length = n)
+  x2 = seq(from = grange[1,2], to = grange[2,2], length = n)
+  expand.grid(x.1 = x1, x.2 = x2)}
+xgrid = make.grid(x)
+```
+
+***
+
+```{r echo=FALSE}
+ygrid=predict(svmfit, xgrid)
+plot.data <- data.frame(x.1=xgrid$x.1,x.2=xgrid$x.2,y=ygrid)
+ggplot(plot.data, aes(x=x.1,y=x.2, colour=y),size=.5)+
+  geom_point()+
+  geom_point(data=data_train, aes(x=x.1,y=x.2, colour=y), size=5)+
+  geom_point(data=data_train[svmfit$index,],aes(x=x.1,y=x.2),colour="black", shape=0, size=5)+
+    theme(legend.position = "None")
+
+```
+
+
+***
+- Make predictions on the test data
+
+```{r}
+ypred=predict(svmfit,data_test )
+cm.radial <- confusionMatrix(data=ypred,
+                reference=data_test$y,
+                positive="2")
+cm.radial$table
+cm.radial$overall[1]
+```
+
+
+
+***
+- Compare performances
+
+```{r}
+c(cm.linear$overall[1],cm.linear$byClass[c(1,2,7)])
+c(cm.poly$overall[1],cm.poly$byClass[c(1,2,7)])
+c(cm.radial$overall[1],cm.radial$byClass[c(1,2,7)])
+```
+
+# Exercise
+
+```{r}
+cars_train <- read.csv("cayugacars_train.csv")
+cars_test <- read.csv("cayugacars_test.csv")
+data_train <- cars_train[,-c(10:ncol(cars_train))]
+data_test <- cars_test[,-c(10:ncol(cars_test))]
+```
+
+***
+## Linear kernel
+
+```{r}
+svm.linear = tune(svm,customer_bid~ ., data=data_train , kernel ="linear", ranges =list(cost=10^seq(-3, 2, by = 0.5)))
+summary(svm.linear)
+```
+
+***
+```{r}
+svmfit <- svm.linear$best.model
+svmfit
+```
+
+
+***
+- Make predictions on the test data
+
+```{r}
+ypred=predict(svmfit,data_test )
+cm.linear <- confusionMatrix(data=ypred,
+                reference=data_test$customer_bid,
+                positive="Yes")
+cm.linear$table
+cm.linear$byClass[7]
+```
+
+
+***
+## Polynomial kernel
+
+```{r}
+svm.poly = tune(svm,customer_bid~ ., data=data_train ,     kernel ="polynomial",
+            ranges =list(cost=10^seq(-3, 2, by = 0.5),
+                         degree=c(2,3,4)))
+summary(svm.poly)
+```
+
+***
+```{r}
+svmfit <- svm.poly$best.model
+svmfit
+```
+
+***
+- Make predictions on the test data
+
+```{r}
+ypred=predict(svmfit,data_test )
+cm.poly <- confusionMatrix(data=ypred,
+                reference=data_test$customer_bid,
+                positive="Yes")
+cm.poly$table
+cm.poly$byClass[7]
+```
+
+
+***
+## Radial kernel
+
+```{r}
+svm.rad = tune(svm,customer_bid~ ., data=data_train, 
+            kernel ="radial",
+            ranges =list(cost=10^seq(-3, 2, by = 0.5),
+                         gamma=c(0.01,0.05,0.1,0.5,1,2)))
+summary(svm.rad)
+```
+
+***
+```{r}
+svmfit <- svm.rad$best.model
+svmfit
+```
+
+***
+- Make predictions on the test data
+
+```{r}
+ypred=predict(svmfit,data_test )
+cm.radial <- confusionMatrix(data=ypred,
+                reference=data_test$customer_bid,
+                positive="Yes")
+cm.radial$table
+cm.radial$byClass[7]
+```
+
+***
+- Compare performances
+
+```{r}
+c(cm.linear$overall[1],cm.linear$byClass[c(1,2,7)])
+c(cm.poly$overall[1],cm.poly$byClass[c(1,2,7)])
+c(cm.radial$overall[1],cm.radial$byClass[c(1,2,7)])
+```
+

@@ -1,0 +1,478 @@
+---
+title: "NBA 4920/6921 Lecture 20"
+subtitle: "Ensemble Methods: Boosting Application" 
+author: "Murat Unal"
+date: "11/09/2021"
+output: 
+  beamer_presentation:
+    colortheme: beaver
+    df_print: kable
+    fig_height: 3
+    fig_width: 5
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(comment = '', 
+                      warning = FALSE, 
+                      message = FALSE)
+```
+
+------------------------------------------------------------------------
+
+```{r message=FALSE, warning=FALSE}
+rm(list=ls())
+options(digits = 3, scipen = 999)
+library(tidyverse)
+library(ISLR)
+library(jtools)
+library(caret)
+library(glmnet)
+library(rpart)
+library(rpart.plot)
+library(ROCR)
+library(ipred)
+library(vip)
+library(randomForest)
+library(gbm)
+library(ranger)
+set.seed(2)
+```
+
+***
+```{r}
+Hitters <- ISLR::Hitters
+Hitters <- na.omit(Hitters)
+train = sample(1:nrow(Hitters), 0.7*nrow(Hitters))
+```
+
+# Boosting
+
+- Let's run a basic GBM model
+
+```{r}
+hit_gbm <- gbm(
+  formula = Salary ~ .,
+  data = Hitters[train,],
+  distribution = "gaussian",# SSE loss function
+  n.trees = 1000,
+  shrinkage = 0.001, #learning rate
+  cv.folds = 10,
+  interaction.depth = 3 #depth of each tree
+)
+# find index for number trees with minimum CV error
+best <- which.min(hit_gbm$cv.error)
+# get MSE and compute RMSE
+sqrt(hit_gbm$cv.error[best])
+```
+
+***
+- Results show cross-validated RMSE of `r `sqrt(hit_gbm$cv.error[best])` which we achieved with `r best` trees.
+-  Training and cross-validated MSE as trees are added to the GBM algorithm
+-  The small learning rate is resulting in very small incremental improvements which means many trees are required
+```{r}
+gbm.perf(hit_gbm, method = "cv")
+```
+
+***
+- Let's increase the learning rate to take larger steps down the gradient descent
+```{r}
+hit_gbm2 <- gbm(
+  formula = Salary ~ .,
+  data = Hitters[train,],
+  distribution = "gaussian",# SSE loss function
+  n.trees = 1000,
+  shrinkage = 0.1, #learning rate
+  cv.folds = 10,
+  interaction.depth = 3 #depth of each tree
+)
+# find index for number trees with minimum CV error
+best <- which.min(hit_gbm2$cv.error)
+# get MSE and compute RMSE
+sqrt(hit_gbm2$cv.error[best])
+```
+
+***
+```{r}
+gbm.perf(hit_gbm2, method = "cv")
+```
+
+***
+- Make predictions on the test data
+- Like most models, we simply use the `predict` function; however, we also need to supply the number of trees to use
+```{r}
+pred.gbm <- predict.gbm(hit_gbm2,n.trees=1000,Hitters[-train,])
+rmse.gbm <- sqrt(mean((Hitters[-train,"Salary"] -
+                          pred.gbm)^2))
+rmse.gbm
+```
+
+***
+- A better option than manually tweaking hyperparameters one at a time is to perform a grid search which iterates over every combination of hyperparameter values and allows us to assess which combination tends to perform well. 
+
+- Let's search across 16 models with varying learning rates and tree depth. Let's also vary the minimum number of observations allowed in the trees terminal nodes `n.minobsinnode` and introduce stochastic gradient descent by allowing `bag.fraction < 1`
+
+```{r}
+# create hyperparameter grid
+hyper_grid <- expand.grid(
+  shrinkage = c(.01, .1),
+  interaction.depth = c(1, 3),
+  n.minobsinnode = c(5, 10),
+  bag.fraction = c(.7, .8), 
+  optimal_trees = 0,               
+  min_RMSE = 0                     
+)
+
+# total number of combinations
+nrow(hyper_grid)
+```
+
+***
+
+```{r}
+# grid search 
+for(i in 1:nrow(hyper_grid)) {
+   print(i)
+  # train model
+  gbm.tune <- gbm(
+    formula = Salary ~ .,
+    distribution = "gaussian",
+    data = Hitters[train,],
+    n.trees = 1000,
+    interaction.depth = hyper_grid$interaction.depth[i],
+    shrinkage = hyper_grid$shrinkage[i],
+    n.minobsinnode = hyper_grid$n.minobsinnode[i],
+    bag.fraction = hyper_grid$bag.fraction[i],
+    cv.folds = 10)
+
+  # add min training error and trees to grid
+  hyper_grid$optimal_trees[i] <- which.min(gbm.tune$cv.error)
+  hyper_grid$min_RMSE[i] <- sqrt(min(gbm.tune$cv.error))
+}
+```
+***
+```{r}
+hyper_grid %>% 
+  arrange(min_RMSE) %>%
+  head(10)
+```
+
+***
+- Once we have found our top model we train a model with those specific parameters. 
+
+```{r}
+best.model <- hyper_grid %>% 
+  arrange(min_RMSE) %>%
+  head(1)
+best.model
+```
+
+***
+- Let's re-run the GBM model with optimal hyper parameters
+
+```{r}
+hit_gbm.final <- gbm(
+  formula = Salary ~ .,
+  data = Hitters[train,],
+  distribution = "gaussian",
+  n.trees = 1000,
+  interaction.depth = best.model$interaction.depth,
+  shrinkage = best.model$shrinkage,
+  n.minobsinnode = best.model$n.minobsinnode,
+  bag.fraction = best.model$bag.fraction,
+  cv.folds = 10)
+# find index for number trees with minimum CV error
+best <- which.min(hit_gbm.final$cv.error)
+# get MSE and compute RMSE
+sqrt(hit_gbm.final$cv.error[best])
+```
+
+***
+- Make predictions on the test data
+
+```{r}
+pred.gbm.final <- predict.gbm(hit_gbm.final, n.trees=1000, Hitters[-train,])
+rmse.gbm.final <- sqrt(mean((Hitters[-train,"Salary"] -
+                          pred.gbm.final)^2))
+rmse.gbm.final
+```
+
+***
+- Variable Importance Plot
+```{r}
+vip(hit_gbm.final)
+```
+
+
+***
+- Compare prediction performance
+
+```{r}
+rmse.tree <- 323
+rmse.bag <- 269
+rmse.rf <- 255
+rmse.gbm
+rmse.gbm.final
+```
+
+# Exercise
+## Boosting
+
+```{r}
+cars_train <- read.csv("cayugacars_train.csv")
+cars_test <- read.csv("cayugacars_test.csv")
+cars_train$customer_bid <- ifelse(cars_train$customer_bid=="Yes",1,0)
+cars_test$customer_bid <- ifelse(cars_test$customer_bid=="Yes",1,0)
+```
+
+***
+- Run a simple `boosting` model
+```{r}
+cars.gbm <- gbm(
+  formula = customer_bid ~ .,
+  data = cars_train,
+  distribution = "bernoulli",
+  n.trees = 1000,
+  shrinkage = 0.1, #learning rate
+  cv.folds = 10,
+  interaction.depth = 3 #depth of each tree
+)
+# find index for number trees with minimum CV error
+best <- which.min(cars.gbm$cv.error)
+# get MSE and compute RMSE
+cars.gbm$cv.error[best]
+```
+
+***
+- Plot the cv.error
+```{r}
+gbm.perf(cars.gbm, method = "cv")
+```
+
+***
+- Change the learning rate
+```{r}
+cars.gbm <- gbm(
+  formula = customer_bid ~ .,
+  data = cars_train,
+  distribution = "bernoulli",
+  n.trees = 1000,
+  shrinkage = 0.2, #learning rate
+  cv.folds = 10,
+  interaction.depth = 3 #depth of each tree
+)
+# find index for number trees with minimum CV error
+best <- which.min(cars.gbm$cv.error)
+# get MSE and compute RMSE
+cars.gbm$cv.error[best]
+```
+
+***
+- Plot the cv.error
+```{r}
+gbm.perf(cars.gbm, method = "cv")
+```
+
+***
+- Create hyperparameter grid
+```{r}
+hyper_grid <- expand.grid(
+  shrinkage = c(.01, .2),
+  interaction.depth = c(1, 3),
+  n.minobsinnode = c(5, 10),
+  bag.fraction = c(.7, .8), 
+  optimal_trees = 0,               
+  min_RMSE = 0                     
+)
+# total number of combinations
+nrow(hyper_grid)
+```
+
+***
+- Run the model
+```{r}
+# grid search 
+for(i in 1:nrow(hyper_grid)) {
+   print(i)
+  # train model
+  gbm.tune <- gbm(
+    formula = customer_bid ~ .,
+    distribution = "bernoulli",
+    data = cars_train,
+    n.trees = 1000,
+    interaction.depth = hyper_grid$interaction.depth[i],
+    shrinkage = hyper_grid$shrinkage[i],
+    n.minobsinnode = hyper_grid$n.minobsinnode[i],
+    bag.fraction = hyper_grid$bag.fraction[i],
+    cv.folds = 10)
+  # add min training error and trees to grid
+  hyper_grid$optimal_trees[i] <- which.min(gbm.tune$cv.error)
+  hyper_grid$min_RMSE[i] <- sqrt(min(gbm.tune$cv.error))
+}
+```
+
+***
+- Sort the results
+```{r}
+hyper_grid %>% 
+  arrange(min_RMSE) %>%
+  head(10)
+```
+
+***
+- Train a model with the optimal parameters. 
+
+```{r}
+best.model <- hyper_grid %>% 
+  arrange(min_RMSE) %>%
+  head(1)
+best.model
+```
+
+***
+- Re-run the GBM model with optimal hyper parameters
+
+```{r}
+cars.gbm.final <- gbm(
+  formula = customer_bid ~ .,
+  distribution = "bernoulli",
+  data = cars_train,
+  n.trees = 1000,
+  interaction.depth = best.model$interaction.depth,
+  shrinkage = best.model$shrinkage,
+  n.minobsinnode = best.model$n.minobsinnode,
+  bag.fraction = best.model$bag.fraction,
+  cv.folds = 10)
+# find index for number trees with minimum CV error
+best <- which.min(cars.gbm.final$cv.error)
+cars.gbm.final$cv.error[best]
+```
+
+***
+- Make predictions on the test data and classify into classes
+
+```{r}
+pred.gbm.final <- predict.gbm(cars.gbm.final, n.trees=1000,
+                              type="response",cars_test)
+yhat.gbm.final <- as.factor(ifelse(pred.gbm.final>=0.5,1,0))
+```
+
+***
+- Confusion Matrix
+```{r}
+cm <- confusionMatrix(data=yhat.gbm.final,
+reference=as.factor(cars_test$customer_bid),
+positive="1")
+cm$table
+c(cm$overall[1],cm$byClass[c(1,2,7)])
+```
+
+
+***
+- Variable Importance Plot
+```{r}
+vip(cars.gbm.final)
+```
+
+***
+## Random Forest
+
+- Define tuning grid
+```{r}
+hyper_grid <- expand.grid(
+  mtry       = seq(2, 12, by = 2),
+  node_size  = seq(2, 8, by = 2),
+  sample_size = c(.5, .70, .80),
+  OOB_RMSE   = 0
+)
+```
+
+
+***
+_ Apply tuning 
+```{r}
+for(i in 1:nrow(hyper_grid)) {
+  # train model
+  model <- ranger(
+    formula         = customer_bid ~ ., 
+    data            = cars_train, 
+    num.trees       = 1000,
+    mtry            = hyper_grid$mtry[i],
+    min.node.size   = hyper_grid$node_size[i],
+    sample.fraction = hyper_grid$sample_size[i]  )
+  # add OOB error to grid
+  hyper_grid$OOB_RMSE[i] <- model$prediction.error
+}
+
+```
+
+***
+- Show tuning results
+```{r}
+hyper_grid %>% 
+  arrange(OOB_RMSE) %>% head(10)
+best.rf <-hyper_grid %>% 
+  arrange(OOB_RMSE) %>% head(1)
+```
+
+***
+
+```{r}
+optimal_rf <- ranger(
+    formula         = customer_bid ~ ., 
+    data            = cars_train, 
+    num.trees       = 1000,
+    mtry            = best.rf$mtry,
+    min.node.size   = best.rf$node_size,
+    sample.fraction = best.rf$sample_size,
+    importance      = 'impurity')
+```
+
+
+***
+- Make predictions
+
+```{r}
+predict_rf <- predict(optimal_rf, cars_test,type="response")$predictions
+y.hat_rf <- ifelse(predict_rf>=0.5,1,0)
+```
+
+***
+- Confusion Matrix
+```{r}
+cm <- confusionMatrix(data=as.factor(y.hat_rf),
+reference=as.factor(cars_test$customer_bid),
+positive="1")
+cm$table
+c(cm$overall[1],cm$byClass[c(1,2,7)])
+```
+
+***
+## Bagging
+```{r}
+cars_bag <- bagging(as.factor(customer_bid) ~ .,data = cars_train,
+                   nbagg=500,coob=TRUE,
+                   control=rpart.control(cp=0))
+cars_bag
+```
+
+***
+- Make predictions on the test data
+
+```{r}
+cars_pred_bag <- data.frame("p_hat"=predict(cars_bag,
+                cars_test,type = "prob")[,"1"],
+                        "predicted"=predict(cars_bag, 
+                cars_test, type = "class"),
+                        "actual"=cars_test$customer_bid)
+```
+
+***
+- Call the `confusion matrix`
+
+```{r}
+cm_bag <- confusionMatrix(data=as.factor(cars_pred_bag$predicted),
+                reference=as.factor(cars_pred_bag$actual),
+                positive="1")
+cm_bag$table
+c(cm_bag$overall[1],cm_bag$byClass[c(1,2,7)])
+```

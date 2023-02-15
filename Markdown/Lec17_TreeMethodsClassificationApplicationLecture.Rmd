@@ -1,0 +1,190 @@
+---
+title: "NBA 4920/6921 Lecture 17"
+subtitle: "Tree Methods: Classification Application" 
+author: "Murat Unal"
+date: "10/28/2021"
+output: 
+  beamer_presentation:
+    colortheme: beaver
+    df_print: kable
+    fig_height: 3
+    fig_width: 5
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(comment = '', 
+                      warning = FALSE, 
+                      message = FALSE)
+```
+
+------------------------------------------------------------------------
+
+```{r message=FALSE, warning=FALSE}
+rm(list=ls())
+options(digits = 3, scipen = 999)
+library(tidyverse)
+library(ISLR)
+library(lmtest)
+library(sandwich)
+library(jtools)
+library(caret)
+library(leaps)
+library(future.apply)
+library(glmnet)
+library(rpart)
+library(rpart.plot)
+library(ROCR)
+set.seed(2)
+```
+
+***
+- We'll use the `Carseats` dataset from ISLR
+
+```{r}
+Carseats <- ISLR::Carseats
+Carseats = na.omit(Carseats)
+```
+
+```{r}
+dim(Carseats)
+names(Carseats)
+```
+
+***
+- Let’s modify the response from its original numeric variable to a categorical variable with two levels: `high` and `low`
+
+```{r}
+Carseats$Sales = as.factor(ifelse(Carseats$Sales <= 8,
+                                  "Low", "High"))
+```
+
+```{r}
+train = sample(1:nrow(Carseats), 0.7*nrow(Carseats))
+```
+
+***
+
+- Grow a classification tree
+
+```{r}
+sales_tree = rpart(Sales ~ .,data = Carseats[train,],
+                 method="class")
+
+sales_tree
+```
+***
+- We can visualize our tree model with `rpart.plot()`
+
+```{r}
+rpart.plot(sales_tree)
+```
+
+***
+- Behind the scenes `rpart()` is automatically applying a range of cost complexity $\alpha$  values to prune the tree. 
+
+- To compare the error for each  $\alpha$  value, it performs a 10-fold CV (by default)
+
+```{r}
+sales_tree$cptable
+```
+
+- Here we don't find much improvement after 3 terminal nodes 
+
+
+***
+
+- Thus, we could use a tree with just 3 terminal nodes and reasonably expect to experience similar results within a small margin of error.
+
+
+```{r}
+plotcp(sales_tree)
+```
+
+***
+- Grow another tree with `maxdepth=2`
+
+```{r}
+sales_tree2 = rpart(Sales ~ .,data = Carseats[train,],
+                 method="class", maxdepth=2)
+
+sales_tree2
+```
+***
+- We can visualize our tree model with `rpart.plot()`
+
+```{r}
+rpart.plot(sales_tree2)
+```
+
+
+***
+- Make predictions on the test data using both trees
+
+```{r}
+sales_pred <- data.frame("p_hat"=predict(sales_tree,
+                Carseats[-train,],type = "prob")[,"High"],
+                        "predicted"=predict(sales_tree, 
+                Carseats[-train,], type = "class"),
+                        "actual"=Carseats[-train,"Sales"])
+
+sales_pred2 <- data.frame("p_hat"=predict(sales_tree2,
+                Carseats[-train,],type = "prob")[,"High"],
+                      "predicted"=predict(sales_tree2, 
+                Carseats[-train,], type = "class"),
+                      "actual"=Carseats[-train,"Sales"])
+```
+
+***
+- Call the `confusion matrix`
+
+```{r}
+cm <- confusionMatrix(data=sales_pred$predicted,
+                reference=sales_pred$actual,
+                positive="High")
+cm$table
+```
+
+***
+- Call the `confusion matrix`
+
+```{r}
+cm2 <- confusionMatrix(data=sales_pred2$predicted,
+                reference=sales_pred2$actual,
+                positive="High")
+cm2$table
+```
+
+***
+- Performance metrics
+```{r}
+c(cm$overall[1],cm$byClass[c(1,2,7)])
+c(cm2$overall[1],cm2$byClass[c(1,2,7)])
+```
+
+***
+- ROC curve
+
+```{r echo=FALSE}
+pred = prediction(sales_pred$p_hat, sales_pred$actual,
+                  label.ordering = c("Low","High"))
+roc = performance(pred,"tpr","fpr")
+plot(roc, colorize = T, lwd = 2)
+abline(a = 0, b = 1)
+auc = performance(pred, measure = "auc")
+subtitle = sprintf("AUC: %f", auc@y.values)
+mtext(side=3,line=1,at=0,adj=0,cex=0.7,subtitle)
+```
+
+***
+- ROC curve
+
+```{r echo=FALSE}
+pred = prediction(sales_pred2$p_hat, sales_pred2$actual,
+                  label.ordering = c("Low","High"))
+roc = performance(pred,"tpr","fpr")
+plot(roc, colorize = T, lwd = 2)
+abline(a = 0, b = 1)
+auc = performance(pred, measure = "auc")
+subtitle = sprintf("AUC: %f", auc@y.values)
+mtext(side=3,line=1,at=0,adj=0,cex=0.7,subtitle)
+```

@@ -1,0 +1,209 @@
+---
+title: "NBA 4920/6921 Lecture 15"
+subtitle: "Elastic Net Application" 
+author: "Murat Unal"
+date: "10/21/2021"
+output: 
+  beamer_presentation:
+    colortheme: beaver
+    df_print: kable
+    fig_height: 3
+    fig_width: 5
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(comment = '', 
+                      warning = FALSE, 
+                      message = FALSE)
+```
+
+------------------------------------------------------------------------
+
+```{r message=FALSE, warning=FALSE}
+rm(list=ls())
+options(digits = 3, scipen = 999)
+library(tidyverse)
+library(ISLR)
+library(ggplot2)
+library(jtools)
+library(caret)
+library(leaps)
+library(glmnet)
+Hitters <- ISLR::Hitters
+Hitters <- na.omit(Hitters)
+set.seed(2)
+```
+
+```{r}
+x=model.matrix(Salary~.,Hitters)[,-1]
+y=Hitters$Salary
+```
+
+```{r}
+train=sample(1:nrow(x), 0.7*nrow(x))
+```
+
+***
+- Previous test RMSEs:
+
+```{r}
+RMSE <- matrix(NA,ncol = 1, nrow = 8)
+rownames(RMSE) <- c("rmse.ridge.lambdabig",
+"rmse.ridge.lambda4","rmse.ridge.lambda0",
+"rmse.ridge.lambdabest","rmse.lasso.lambda1se",
+"rmse.lasso.lambdabest", "rmse.elnet.lambda1se",
+"rmse.elnet.lambdabest")
+RMSE[1:6,1] <- c(405,296,300,292,334,297)
+RMSE
+```
+
+
+# Elastic net
+
+- Now, there are two parameters to tune: $\lambda$ and $\alpha$.
+
+- The __glmnet__ package allows to tune $\lambda$ via cross-validation for a fixed $\alpha$, but it does not support $\alpha$-tuning.
+
+
+***
+- Let's write our own loop that does the tuning
+
+- First, we create a common `fold_id`, which just allows us to apply the same CV folds to each model.
+
+- We then create a tuning grid that searches across a range of $\alpha$s from 0-1, and empty columns where we’ll dump our model results into.
+
+```{r}
+# maintain the same folds across all models
+fold_id <- sample(1:10, size = length(y[train]), 
+                                    replace=TRUE)
+
+# search across a range of alphas
+tuning_grid <- data.frame(
+  alpha      = seq(0, 1, by = .1),
+  mse_min    = NA,mse_1se    = NA,
+  lambda_min = NA,lambda_1se = NA)
+```
+
+***
+- Now we can iterate over each $\alpha$ value, apply a CV elastic net, and extract the minimum and one standard error MSE values and their respective 
+ $\lambda$ values.
+
+```{r}
+for(i in seq_along(tuning_grid$alpha)  ) {
+  # fit CV model for each alpha value
+  fit <- cv.glmnet(x[train,], y[train], 
+                   alpha = tuning_grid$alpha[i], 
+                                foldid = fold_id)
+  
+  # extract MSE and lambda values
+  tuning_grid$mse_min[i]    <- fit$cvm[fit$lambda==
+                                         fit$lambda.min]
+  tuning_grid$mse_1se[i]    <- fit$cvm[fit$lambda==
+                                         fit$lambda.1se]
+  tuning_grid$lambda_min[i] <- fit$lambda.min
+  tuning_grid$lambda_1se[i] <- fit$lambda.1se
+}
+
+```
+***
+```{r}
+tuning_grid %>% arrange(mse_min)
+```
+
+***
+- Extract the optimum $alpha$ and $\lambda$ values
+
+```{r}
+best.index <- which.min(tuning_grid$mse_min)
+best.alpha <- tuning_grid[best.index ,"alpha"]
+best.lambda <- tuning_grid[best.index ,"lambda_min"]
+best.lambda.1se <- tuning_grid[best.index ,"lambda_1se"]
+
+best.alpha
+best.lambda
+best.lambda.1se 
+```
+***
+- Now that have identified the preferred model, we retrain the model and simply use `predict` to predict the same model on a new data set.
+
+```{r}
+elnet.mod <- glmnet(x[train,], y[train],alpha=best.alpha)
+
+elnet.pred.lambdabest <- predict(elnet.mod, 
+                    s=best.lambda,newx=x[-train,])
+
+elnet.pred.lambda1se <- predict(elnet.mod, 
+                    s=best.lambda.1se,newx=x[-train,])
+
+rmse.elnet.lambdabest<-sqrt(mean((y[-train] - 
+                              elnet.pred.lambdabest)^2))
+rmse.elnet.lambda1se<-sqrt(mean((y[-train] -
+                              elnet.pred.lambda1se)^2))
+```
+
+***
+```{r}
+RMSE[7:8,1]<-c(rmse.elnet.lambda1se,
+               rmse.elnet.lambdabest)
+RMSE
+```
+
+***
+- We could also use the __caret__ package to do cross-validation for both $\alpha$ and $\lambda$
+
+- The package has the `train()` meta engine (aggregator) that allows us to apply almost any direct engine with `method()`
+
+***
+```{r}
+cv_10 = trainControl(method = "cv", number = 10)
+
+grid =  expand.grid(alpha = seq(0,1,by=0.1),
+                    lambda = 10^seq(3,-2,length=100))
+elnet = train(
+  Salary ~ .,
+  data = Hitters[train,],
+  method = "glmnet",
+  trControl = cv_10,
+  preProcess = c("center", "scale"),
+  tuneGrid = grid)
+```
+
+***
+```{r}
+elnet$bestTune
+alpha.best <- unlist(unname(elnet$bestTune[1]))
+lambda.best <- unlist(unname(elnet$bestTune[2]))
+```
+***
+```{r}
+plot(elnet, xvar = "lambda")
+```
+
+***
+- Final model with cross-validated parameters
+
+```{r}
+elnet.final <- glmnet(x[train,],y[train],alpha=alpha.best)
+
+elnet.final.lambdabest <- predict(elnet.final, 
+                    s=lambda.best,newx=x[-train,])
+
+elnet.lambdabest.caret <- sqrt(mean((y[-train]-
+                        elnet.final.lambdabest)^2 ))
+elnet.lambdabest.caret
+```
+
+***
+```{r}
+predict(elnet.final,s=lambda.best,type = "coefficients")[1:20,]
+```
+
+
+
+
+
+
+
+
+
+

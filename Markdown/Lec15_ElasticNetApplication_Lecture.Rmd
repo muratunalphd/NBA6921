@@ -1,0 +1,280 @@
+---
+title: "NBA 4920/6921 Lecture 15"
+subtitle: "Elastic Net Application" 
+author: "Murat Unal"
+date: "10/21/2021"
+output: 
+  beamer_presentation:
+    colortheme: beaver
+    df_print: kable
+    fig_height: 3
+    fig_width: 5
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(comment = '', 
+                      warning = FALSE, 
+                      message = FALSE)
+```
+
+------------------------------------------------------------------------
+
+```{r message=FALSE, warning=FALSE}
+rm(list=ls())
+options(digits = 3, scipen = 999)
+library(tidyverse)
+library(ISLR)
+library(ggplot2)
+library(jtools)
+library(caret)
+library(leaps)
+library(glmnet)
+Hitters <- ISLR::Hitters
+Hitters <- na.omit(Hitters)
+set.seed(2)
+```
+
+***
+- Let's create 2.order variables and interaction terms
+```{r}
+x=model.matrix(Salary~.,Hitters)[,-1]
+y=Hitters$Salary
+
+x.squared <- sapply(as.data.frame(x), function(i) i^2)
+
+colnames(x.squared) <- paste0(colnames(x),"_sq", sep ="")
+
+x.interact = model.matrix(~.^2,as.data.frame(x) )[,21:191]
+
+x <- cbind(x, x.squared, x.interact)
+rm(x.interact,x.squared)
+dim(x)
+```
+***
+```{r}
+train=sample(1:nrow(x), 0.7*nrow(x))
+ols.data <- as.data.frame(cbind(Salary=y[train],x[train,]))
+
+```
+
+***
+- Matrix to store RMSEs:
+
+```{r}
+RMSE <- matrix(NA,ncol = 1, nrow = 6)
+rownames(RMSE) <- c("rmse.ridge.lambda0",
+"rmse.ridge.lambdabest","rmse.lasso.lambda1se",
+"rmse.lasso.lambdabest", "rmse.elnet.lambda1se",
+"rmse.elnet.lambdabest")
+```
+
+# OLS
+
+```{r}
+ols.mod <- lm(Salary~.,ols.data)
+summ(ols.mod)
+```
+
+# Ridge Regression
+
+```{r}
+ridge.cv=cv.glmnet(x[train,],y[train]
+                  ,alpha=0,nfold=10,
+                 type.measure="mse")
+bestlam=ridge.cv$lambda.min
+bestlam
+```
+
+***
+- Plot
+```{r}
+plot(ridge.cv)
+```
+
+***
+- Predictions for $lambda=0$
+
+```{r}
+ridge.pred.lambda0 = predict(ridge.cv,newx=x[-train,],
+                    s=0,exact=TRUE,
+                    x=x[train,],y=y[train])
+
+rmse.ridge.lambda0 <- sqrt(mean((y[-train]-
+                          ridge.pred.lambda0)^2))
+rmse.ridge.lambda0
+```
+
+***
+-  Predictions for best $\lambda$
+
+```{r}
+ridge.pred.lambdabest = predict(ridge.cv,newx=x[-train,],
+                    s=bestlam,exact=TRUE,
+                    x=x[train,],y=y[train])
+
+rmse.ridge.lambdabest <- sqrt(mean((y[-train]-
+                      ridge.pred.lambdabest)^2))
+
+rmse.ridge.lambdabest
+```
+
+***
+- Store the values in the RMSE matrix
+
+```{r}
+RMSE[1:2,] <- c(rmse.ridge.lambda0,rmse.ridge.lambdabest)
+```
+
+# Lasso Regression
+
+```{r }
+lasso.cv=cv.glmnet(x[train,],y[train],alpha=1,
+                   nfold=10,type.measure="mse")
+```
+
+***
+- Plot
+```{r }
+plot(lasso.cv)
+```
+
+
+***
+- Prediction using both values of $\lambda$, __lambda.min__ and __lambda.1se__, the value of $\lambda$ that gives the most regularized model such that the cross-validated error is within one standard error of the minimum.
+
+- Save the outputs as __lasso.lambdabest__ and __lasso.lambda1se__
+
+***
+
+```{r }
+lasso.pred.lambdabest=predict(lasso.cv,newx=x[-train,],
+              s=lasso.cv$lambda.min,exact=TRUE,
+              x=x[train,],y=y[train])
+
+lasso.pred.lambda1se=predict(lasso.cv,newx=x[-train,],
+              s=lasso.cv$lambda.1se,exact=TRUE,
+              x=x[train,],y=y[train])
+```
+
+***
+- Compute RMSE of the predictions
+
+```{r }
+rmse.lasso.lambdabest <- sqrt(mean((y[-train]-
+                          lasso.pred.lambdabest)^2))
+
+rmse.lasso.lambda1se <- sqrt(mean((y[-train]-
+                            lasso.pred.lambda1se)^2))
+
+rmse.lasso.lambdabest
+rmse.lasso.lambda1se
+
+```
+
+***
+- Store in RMSE
+
+```{r}
+RMSE[3:4,] <- c(rmse.lasso.lambda1se,rmse.lasso.lambdabest)
+RMSE
+```
+
+
+# Elastic net
+
+- Now, there are two parameters to tune: $\lambda$ and $\alpha$.
+
+- The __glmnet__ package allows to tune $\lambda$ via cross-validation for a fixed $\alpha$, but it does not support $\alpha$-tuning.
+
+
+***
+- Let's write our own loop that does the tuning
+
+- First, we create a common `fold_id`, which just allows us to apply the same CV folds to each model.
+
+- We then create a tuning grid that searches across a range of $\alpha$s from 0-1, and empty columns where we’ll dump our model results into.
+
+```{r}
+# maintain the same folds across all models
+fold_id <- sample(1:10, size = length(y[train]), 
+                                    replace=TRUE)
+
+# search across a range of alphas
+tuning_grid <- data.frame(
+  alpha      = seq(0, 1, by = .1),
+  mse_min    = NA,mse_1se    = NA,
+  lambda_min = NA,lambda_1se = NA)
+```
+
+***
+- Now we can iterate over each $\alpha$ value, apply a CV elastic net, and extract the minimum and one standard error MSE values and their respective 
+ $\lambda$ values.
+
+```{r}
+for(i in seq_along(tuning_grid$alpha)  ) {
+  # fit CV model for each alpha value
+  fit <- cv.glmnet(x[train,], y[train], 
+                   alpha = tuning_grid$alpha[i], 
+                              foldid = fold_id)
+  
+  # extract MSE and lambda values
+  tuning_grid$mse_min[i]    <- fit$cvm[fit$lambda==
+                                         fit$lambda.min]
+  tuning_grid$mse_1se[i]    <- fit$cvm[fit$lambda==
+                                         fit$lambda.1se]
+  tuning_grid$lambda_min[i] <- fit$lambda.min
+  tuning_grid$lambda_1se[i] <- fit$lambda.1se
+}
+
+```
+***
+```{r}
+tuning_grid %>% arrange(mse_min)
+```
+
+***
+- Extract the optimum $alpha$ and $\lambda$ values
+
+```{r}
+best.index <- which.min(tuning_grid$mse_min)
+best.alpha <- tuning_grid[best.index ,"alpha"]
+best.lambda <- tuning_grid[best.index ,"lambda_min"]
+best.lambda.1se <- tuning_grid[best.index ,"lambda_1se"]
+
+best.alpha
+best.lambda
+best.lambda.1se 
+```
+***
+- Now that have identified the preferred model, we retrain the model and simply use `predict` to predict the same model on a new data set.
+
+```{r}
+elnet.mod <- glmnet(x[train,], y[train],alpha=best.alpha)
+
+elnet.pred.lambdabest <- predict(elnet.mod, 
+                    s=best.lambda,newx=x[-train,],
+                    exact=TRUE,x=x[train,],y=y[train])
+
+elnet.pred.lambda1se <- predict(elnet.mod, 
+                    s=best.lambda.1se,newx=x[-train,],
+                    exact=TRUE,x=x[train,],y=y[train])
+
+rmse.elnet.lambdabest<-sqrt(mean((y[-train] - 
+                              elnet.pred.lambdabest)^2))
+rmse.elnet.lambda1se<-sqrt(mean((y[-train] -
+                              elnet.pred.lambda1se)^2))
+```
+
+***
+```{r}
+RMSE[5:6,1]<-c(rmse.elnet.lambda1se,
+               rmse.elnet.lambdabest)
+RMSE
+```
+
+
+
+
+
+
+

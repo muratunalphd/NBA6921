@@ -1,0 +1,522 @@
+---
+title: "NBA 4920/6921 Lecture 11"
+subtitle: "Linear Model Stepwise Selection Application" 
+author: "Murat Unal"
+date: "10/05/2021"
+output: 
+  beamer_presentation:
+    colortheme: beaver
+    df_print: kable
+    fig_height: 3
+    fig_width: 5
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(comment = '', 
+                      warning = FALSE, 
+                      message = FALSE)
+```
+
+------------------------------------------------------------------------
+
+```{r message=FALSE, warning=FALSE}
+rm(list=ls())
+options(digits = 3, scipen = 999)
+library(tidyverse)
+library(ISLR)
+library(cowplot)
+library(ggcorrplot)
+library(stargazer)
+library(corrr)
+library(lmtest)
+library(sandwich)
+library(MASS)
+library(car)
+library(jtools)
+library(caret)
+library(leaps)
+library(future.apply)
+hitters <- ISLR::Hitters
+hitters <- na.omit(hitters)
+set.seed(2)
+```
+
+***
+
+```{r}
+dim(hitters)
+names(hitters)
+```
+
+# Best subset selection
+
+```{r}
+# Draw validation set
+hit_validation_data = hitters %>% sample_frac(size = 0.3)
+# Create the remaining training set
+hit_training_data = setdiff(hitters, hit_validation_data)
+```
+
+***
+```{r}
+nvars = 19
+regfit.best=regsubsets(Salary~.,data=hit_training_data,
+                                          nvmax=nvars)
+best.sum <- summary(regfit.best)
+best.model <- which.max(best.sum$adjr2)
+best.model
+coef(regfit.best,id=best.model)
+```
+
+
+***
+```{r echo=FALSE}
+plot.adjr2 <- data.frame("no.of.variables"=seq(1:nvars),
+                         "Adj.R2"= best.sum$adjr2)
+ggplot(plot.adjr2,aes(x=no.of.variables,y=Adj.R2))+
+  geom_point()+
+  geom_line()
+```
+
+# Validation set approach
+
+```{r}
+validation.mat=model.matrix(Salary~.,
+                      data=hit_validation_data)
+
+val.errors = numeric(nvars)
+for(each in 1:nvars){
+    coefi = coef(regfit.best,id=each)
+    pred = validation.mat[,names(coefi)]%*%coefi
+    val.errors[each]=
+      mean((hit_validation_data$Salary-pred)^2)
+}
+
+which.min(val.errors)
+```
+
+```{r echo=FALSE}
+plot.data.val <- data.frame("no.of.variables"=seq(1:nvars),
+                        "log_MSE"=log(val.errors))
+```
+
+# K-fold cross validation
+
+```{r eval=FALSE}
+nvars = 19
+nfold = 10
+# Create folds
+fold.list <- createFolds(rownames(hitters),nfold)
+# Empty vector to store the resulting MSEs
+cv.errors =matrix(0,nfold,nvars, 
+                dimnames =list(NULL,paste (1:nvars)))
+
+for(each in 1:nfold){
+ train <- hitters[-fold.list[[each]],]
+ validate <- hitters[fold.list[[each]],]
+ 
+ best.fit=regsubsets(Salary~.,data=train,nvmax =19)
+ validation.mat=model.matrix(Salary~.,data=validate)
+ 
+}  
+```
+
+***
+..continued from before
+```{r eval=FALSE}
+
+ for(i in 1:nvars){
+   coefi = coef(regfit.best,id=i)
+   pred = validation.mat[,names(coefi)]%*%coefi
+   cv.errors[each,i] = mean( (validate$Salary-pred)^2)
+   }
+}  
+```
+
+```{r echo=FALSE}
+nvars = 19
+nfold = 10
+# Create folds
+fold.list <- createFolds(rownames(hitters),nfold)
+# Empty vector to store the resulting MSEs
+cv.errors =matrix(0,nfold,nvars, 
+                dimnames =list(NULL,paste (1:nvars)))
+
+for(each in 1:nfold){
+ train <- hitters[-fold.list[[each]],]
+ validate <- hitters[fold.list[[each]],]
+ 
+ best.fit=regsubsets(Salary~.,data=train,nvmax =19)
+ validation.mat=model.matrix(Salary~.,data=validate)
+ for(i in 1:nvars){
+   coefi = coef(best.fit,id=i)
+   pred = validation.mat[,names(coefi)]%*%coefi
+   cv.errors[each,i] = mean( (validate$Salary-pred)^2)
+   }
+}  
+```
+
+***
+```{r}
+mean.cv.errors=apply(cv.errors ,2, mean)
+best.subset.model <- which.min(mean.cv.errors)
+best.subset.model
+```
+
+
+```{r echo=FALSE}
+plot.data.fold <- data.frame("no.of.variables"=seq(1:nvars),
+                             "log_MSE"=log(mean.cv.errors))
+
+```
+
+
+***
+```{r echo=FALSE}
+plot.data <- rbind(plot.data.val,plot.data.fold)
+plot.data$method <- c(rep("Best subset val.set",nvars),
+                      rep("Best subset K.fold",nvars))
+
+ggplot(plot.data,aes(x=no.of.variables,y=log_MSE,
+                     color=method))+
+  geom_point()+
+  geom_line()
+```
+
+***
+
+To obtain the final model we perform
+best subset selection on the full data set and obtain the `r best.subset.model``-variable
+model.
+
+```{r}
+best.fit=regsubsets(Salary~.,data=hitters,nvmax =19)
+coef(best.fit,best.subset.model)
+```
+
+This is your final model that you'd deploy to predict the salary of baseball players.
+
+# Forward Stepwise Selection
+
+We can also use the `regsubsets()` function to perform forward stepwise or backward stepwise selection, using the argument `method="forward"` or `method="backward"`
+
+
+```{r}
+regfit.fwd=regsubsets(Salary~.,data=hitters,
+                      nvmax=19,method="forward")
+fwd.sum <- summary(regfit.fwd)
+fwd.model <- which.max(fwd.sum$adjr2)
+fwd.model
+```
+***
+```{r}
+coef(regfit.fwd, id=fwd.model)[1:4]
+coef(regfit.fwd, id=fwd.model)[5:9]
+coef(regfit.fwd, id=fwd.model)[10:12]
+```
+
+***
+```{r echo=FALSE}
+plot.adjr2 <- data.frame("no.of.variables"=seq(1:nvars),
+"Adj.R2"= fwd.sum$adjr2)
+ggplot(plot.adjr2,aes(x=no.of.variables,y=Adj.R2))+
+geom_point()+
+geom_line()
+```
+
+# Validation set approach
+
+
+```{r}
+nvars=19
+regfit.fwd=regsubsets(Salary~.,data=hit_training_data,
+                      nvmax=nvars,method="forward")
+
+summary(regfit.fwd)
+validation.mat=model.matrix(Salary~.,
+                      data=hit_validation_data)
+
+fwd.val.errors = numeric(nvars)
+for(each in 1:nvars){
+    coefi = coef(regfit.fwd,id=each)
+    pred = validation.mat[,names(coefi)]%*%coefi
+    fwd.val.errors[each]=
+      mean((hit_validation_data$Salary-pred)^2)
+}
+
+which.min(fwd.val.errors)
+```
+
+
+```{r echo=FALSE}
+plot.data.fwd.val <- data.frame("no.of.variables"=seq(1:nvars),
+                        "log_MSE"=log(fwd.val.errors))
+
+```
+
+# K-fold cross validation
+
+```{r eval=FALSE}
+nvars = 19
+nfold = 10
+# Create folds
+fold.list <- createFolds(rownames(hitters),nfold)
+# Empty vector to store the resulting MSEs
+cv.errors =matrix(0,nfold,nvars, 
+                dimnames =list(NULL,paste (1:nvars)))
+
+for(each in 1:nfold){
+ train <- hitters[-fold.list[[each]],]
+ validate <- hitters[fold.list[[each]],]
+ 
+ best.fit=regsubsets(Salary~.,data=train,nvmax =19,
+                     method = "forward")
+ validation.mat=model.matrix(Salary~.,data=validate)
+ 
+}  
+```
+
+***
+..continued from before
+```{r eval=FALSE}
+
+ for(i in 1:nvars){
+   coefi = coef(best.fit,id=i)
+   pred = validation.mat[,names(coefi)]%*%coefi
+   cv.errors[each,i] = mean( (validate$Salary-pred)^2)
+   }
+}  
+```
+
+```{r echo=FALSE}
+nvars = 19
+nfold = 10
+# Create folds
+fold.list <- createFolds(rownames(hitters),nfold)
+# Empty vector to store the resulting MSEs
+fwd.cv.errors =matrix(0,nfold,nvars, 
+                dimnames =list(NULL,paste (1:nvars)))
+
+for(each in 1:nfold){
+ train <- hitters[-fold.list[[each]],]
+ validate <- hitters[fold.list[[each]],]
+ 
+ best.fit=regsubsets(Salary~.,data=train,nvmax =19,
+                     method = "forward")
+ validation.mat=model.matrix(Salary~.,data=validate)
+ for(i in 1:nvars){
+   coefi = coef(regfit.best,id=i)
+   pred = validation.mat[,names(coefi)]%*%coefi
+   fwd.cv.errors[each,i] = mean( (validate$Salary-pred)^2)
+   }
+}  
+```
+
+***
+```{r}
+mean.fwd.cv.errors=apply(fwd.cv.errors ,2, mean)
+best.fwd.cv.model <- which.min(mean.fwd.cv.errors)
+best.fwd.cv.model
+```
+
+
+```{r echo=FALSE}
+plot.data.fwd.fold <- data.frame("no.of.variables"=seq(1:nvars),
+                             "log_MSE"=log(mean.fwd.cv.errors))
+
+```
+
+
+***
+```{r echo=FALSE}
+plot.data.fwd <- rbind(plot.data.fwd.val,plot.data.fwd.fold)
+plot.data.fwd$method <- c(rep("Fwd step val.set",nvars),
+                      rep("Fwd step K.fold",nvars))
+
+ggplot(plot.data.fwd,aes(x=no.of.variables,y=log_MSE,
+                     color=method))+
+  geom_point()+
+  geom_line()
+```
+
+***
+
+To obtain the final model we perform
+forward stepwise selection on the full data set and obtain the `r best.fwd.cv.model`-variable
+model.
+
+```{r}
+best.fwd.fit=regsubsets(Salary~.,data=hitters,nvmax =19,
+                    method = "forward")
+coef(best.fwd.fit,best.fwd.cv.model)
+```
+
+
+This is your final model that you'd deploy to predict the salary of baseball players.
+
+
+# Backward Stepwise Selection 
+
+```{r}
+regfit.bwd=regsubsets(Salary~.,data=hitters,
+                      nvmax=19,method="backward")
+bwd.sum <- summary(regfit.bwd)
+bwd.model <- which.max(bwd.sum$adjr2)
+bwd.model
+```
+
+***
+```{r}
+coef(regfit.bwd, id=bwd.model)
+```
+
+***
+```{r echo=FALSE}
+plot.adjr2 <- data.frame("no.of.variables"=seq(1:nvars),
+"Adj.R2"= bwd.sum$adjr2)
+ggplot(plot.adjr2,aes(x=no.of.variables,y=Adj.R2))+
+geom_point()+
+geom_line()
+```
+
+# Validation set approach
+
+
+```{r}
+nvars=19
+regfit.bwd=regsubsets(Salary~.,data=hit_training_data,
+                      nvmax=nvars,method="backward")
+
+validation.mat=model.matrix(Salary~.,
+                      data=hit_validation_data)
+
+bwd.val.errors = numeric(nvars)
+for(each in 1:nvars){
+    coefi = coef(regfit.bwd,id=each)
+    pred = validation.mat[,names(coefi)]%*%coefi
+    bwd.val.errors[each]=
+      mean((hit_validation_data$Salary-pred)^2)
+}
+
+which.min(bwd.val.errors)
+```
+
+```{r echo=FALSE}
+plot.data.bwd.val <- data.frame("no.of.variables"=seq(1:nvars),
+                        "log_MSE"=log(bwd.val.errors))
+
+```
+
+# K-fold cross validation
+
+```{r eval=FALSE}
+nvars = 19
+nfold = 10
+# Create folds
+fold.list <- createFolds(rownames(hitters),nfold)
+# Empty vector to store the resulting MSEs
+cv.errors =matrix(0,nfold,nvars, 
+                dimnames =list(NULL,paste (1:nvars)))
+
+for(each in 1:nfold){
+ train <- hitters[-fold.list[[each]],]
+ validate <- hitters[fold.list[[each]],]
+ 
+ best.fit=regsubsets(Salary~.,data=train,nvmax =19,
+                     method = "backward")
+ validation.mat=model.matrix(Salary~.,data=validate)
+ 
+}  
+```
+
+***
+..continued from before
+```{r eval=FALSE}
+
+ for(i in 1:nvars){
+   coefi = coef(regfit.best,id=i)
+   pred = validation.mat[,names(coefi)]%*%coefi
+   cv.errors[each,i] = mean( (validate$Salary-pred)^2)
+   }
+}  
+```
+
+```{r echo=FALSE}
+nvars = 19
+nfold = 10
+# Create folds
+fold.list <- createFolds(rownames(hitters),nfold)
+# Empty vector to store the resulting MSEs
+bwd.cv.errors =matrix(0,nfold,nvars, 
+                dimnames =list(NULL,paste (1:nvars)))
+
+for(each in 1:nfold){
+ train <- hitters[-fold.list[[each]],]
+ validate <- hitters[fold.list[[each]],]
+ 
+ best.fit=regsubsets(Salary~.,data=train,nvmax =19,
+                     method = "backward")
+ validation.mat=model.matrix(Salary~.,data=validate)
+ for(i in 1:nvars){
+   coefi = coef(best.fit,id=i)
+   pred = validation.mat[,names(coefi)]%*%coefi
+   bwd.cv.errors[each,i] = mean( (validate$Salary-pred)^2)
+   }
+}  
+```
+
+***
+```{r}
+mean.bwd.cv.errors=apply(bwd.cv.errors ,2, mean)
+best.bwd.cv.model <- which.min(mean.bwd.cv.errors)
+best.bwd.cv.model
+```
+
+
+```{r echo=FALSE}
+plot.data.bwd.fold <- data.frame("no.of.variables"=seq(1:nvars),
+                             "log_MSE"=log(mean.bwd.cv.errors))
+```
+
+
+***
+```{r echo=FALSE}
+plot.data.bwd <- rbind(plot.data.bwd.val,plot.data.bwd.fold)
+plot.data.bwd$method <- c(rep("Bwd step val.set",nvars),
+                      rep("Bwd step K.fold",nvars))
+
+ggplot(plot.data.bwd,aes(x=no.of.variables,y=log_MSE,
+                     color=method))+
+  geom_point()+
+  geom_line()
+```
+
+***
+
+To obtain the final model we perform
+backward stepwise selection on the full data set and obtain the `r best.bwd.cv.model``-variable
+model.
+
+```{r}
+best.bwd.fit=regsubsets(Salary~.,data=hitters,nvmax =19,
+                    method = "backward")
+coef(best.bwd.fit,best.bwd.cv.model)
+```
+
+This is your final model that you'd deploy to predict the salary of baseball players.
+
+***
+Let's compare the test error estimates from all approaches
+
+```{r echo=FALSE}
+plot.data.final <- rbind(plot.data,plot.data.fwd,plot.data.bwd)
+
+
+ggplot(plot.data.final,aes(x=no.of.variables,y=log_MSE,
+                     color=method))+
+  geom_point()+
+  geom_line()
+```
+
+
+

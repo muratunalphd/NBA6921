@@ -1,0 +1,126 @@
+---
+title: "NBA 4920/6921 Lecture 15"
+subtitle: "Tree Methods: Regression Application" 
+author: "Murat Unal"
+date: "10/21/2021"
+output: 
+  beamer_presentation:
+    colortheme: beaver
+    df_print: kable
+    fig_height: 3
+    fig_width: 5
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(comment = '', 
+                      warning = FALSE, 
+                      message = FALSE)
+```
+
+------------------------------------------------------------------------
+
+```{r message=FALSE, warning=FALSE}
+rm(list=ls())
+options(digits = 3, scipen = 999)
+library(tidyverse)
+library(ISLR)
+library(cowplot)
+library(ggcorrplot)
+library(stargazer)
+library(corrr)
+library(lmtest)
+library(sandwich)
+library(MASS)
+library(car)
+library(jtools)
+library(caret)
+library(leaps)
+library(future.apply)
+library(glmnet)
+library(rpart)
+library(rpart.plot)
+library(ROCR)
+set.seed(2)
+```
+
+***
+```{r}
+Hitters <- ISLR::Hitters
+Hitters <- na.omit(Hitters)
+```
+
+***
+```{r}
+train = sample(1:nrow(Hitters), 0.7*nrow(Hitters))
+
+```
+
+***
+# Regression Trees
+
+- To train decision trees in R, we can use __caret__ , which draws upon `rpart`
+
+- You can get a list of models supported by __caret__,  `names(getModelInfo())`
+
+- The tunable parameters for a given model, `modelLookup("rpart")`
+
+- To `train()` our model in __caret__
+
+> Define the `method` as `rpart`
+
+> The main tuning parameter is `cp`, the complexity parameter
+
+
+
+***
+```{r}
+hit_tree = train(
+Salary ~ .,
+data = Hitters[train,],
+method = "rpart",
+trControl = trainControl("cv", number = 5),
+# tuneLength = 20
+tuneGrid = data.frame(cp = seq(0, 0.1, by = 0.001))
+)
+names(hit_tree)
+```
+***
+- To get the CV-chosen final tree
+
+```{r}
+hit_tree$finalModel
+
+```
+
+
+***
+- To plot the CV-chosen tree, we need to
+
+1. extract the fitted model, e.g., `hit_tree$finalModel`
+
+2. apply a plotting function e.g., `rpart.plot()` from __rpart.plot__
+
+
+***
+```{r}
+rpart.plot(hit_tree$finalModel)
+```
+
+***
+- Plot the performance metric against the complexity parameter
+
+```{r}
+cp.data = data.frame("cp" = hit_tree$results[[1]],
+                    "RMSE" =  hit_tree$results[[2]])
+ggplot(cp.data, aes(x=cp,y=RMSE))+
+  geom_point()+
+  geom_line()
+```
+
+***
+- Make predictions on the test data
+```{r}
+pred.tree <- predict(hit_tree, Hitters[-train,])
+sqrt(mean((Hitters[-train,"Salary"] - pred.tree)^2))
+```
+

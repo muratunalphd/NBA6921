@@ -1,0 +1,253 @@
+---
+title: "NBA 4920/6921 Lecture 10"
+subtitle: "Linear Model Best Subset Selection Application" 
+author: "Murat Unal"
+date: "9/30/2021"
+output: 
+  beamer_presentation:
+    colortheme: beaver
+    df_print: kable
+    fig_height: 3
+    fig_width: 5
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(comment = '', 
+                      warning = FALSE, 
+                      message = FALSE)
+```
+
+------------------------------------------------------------------------
+
+```{r message=FALSE, warning=FALSE}
+rm(list=ls())
+options(digits = 3, scipen = 999)
+library(tidyverse)
+library(ISLR)
+library(cowplot)
+library(ggcorrplot)
+library(stargazer)
+library(corrr)
+library(lmtest)
+library(sandwich)
+library(MASS)
+library(car)
+library(jtools)
+library(caret)
+library(leaps)
+library(future.apply)
+hitters <- ISLR::Hitters
+hitters <- na.omit(hitters)
+set.seed(2)
+```
+
+***
+
+```{r}
+dim(hitters)
+names(hitters)
+```
+
+# Best subset selection
+
+```{r}
+# Draw validation set
+hit_validation_data = hitters %>% sample_frac(size = 0.3)
+# Create the remaining training set
+hit_training_data = setdiff(hitters, hit_validation_data)
+```
+
+***
+```{r}
+nvars = 19
+regfit.best=regsubsets(Salary~.,data=hit_training_data,
+                                          nvmax=nvars)
+best.sum <- summary(regfit.best)
+best.model <- which.max(best.sum$adjr2)
+best.model
+coef(regfit.best,id=best.model)[1:4]
+coef(regfit.best,id=best.model)[5:9]
+coef(regfit.best,id=best.model)[10:11]
+```
+
+***
+```{r eval=FALSE}
+plot.adjr2 <- data.frame("no.of.variables"=seq(1:nvars),
+                         "Adj.R2"= best.sum$adjr2)
+ggplot(plot.adjr2,aes(x=no.of.variables,y=Adj.R2))+
+  geom_point()+
+  geom_line()
+```
+
+***
+```{r echo=FALSE}
+plot.adjr2 <- data.frame("no.of.variables"=seq(1:nvars),
+                         "Adj.R2"= best.sum$adjr2)
+ggplot(plot.adjr2,aes(x=no.of.variables,y=Adj.R2))+
+  geom_point()+
+  geom_line()
+```
+
+# Validation set approach
+
+```{r}
+validation.mat=model.matrix(Salary~.,
+                      data=hit_validation_data)
+
+val.errors = numeric(nvars)
+for(each in 1:nvars){
+    coefi = coef(regfit.best,id=each)
+    pred = validation.mat[,names(coefi)]%*%coefi
+    val.errors[each]=
+      mean((hit_validation_data$Salary-pred)^2)
+}
+
+which.min(val.errors)
+```
+
+***
+
+```{r eval=FALSE}
+plot.data <- data.frame("no.of.variables"=seq(1:nvars),
+                        "log_MSE"=log(val.errors))
+
+ggplot(plot.data,aes(x=no.of.variables,y=log_MSE))+
+  geom_point()+
+  geom_line()
+
+```
+
+***
+
+```{r echo=FALSE}
+plot.data <- data.frame("no.of.variables"=seq(1:nvars),
+                        "log_MSE"=log(val.errors))
+
+ggplot(plot.data,aes(x=no.of.variables,y=log_MSE))+
+  geom_point()+
+  geom_line()
+
+```
+
+# K-fold cross validation
+
+```{r eval=FALSE}
+nvars = 19
+nfold = 10
+# Create folds
+fold.list <- createFolds(rownames(hitters),nfold)
+# Empty vector to store the resulting MSEs
+cv.errors =matrix(0,nfold,nvars, 
+                dimnames =list(NULL,paste (1:nvars)))
+
+for(each in 1:nfold){
+ train <- hitters[-fold.list[[each]],]
+ validate <- hitters[fold.list[[each]],]
+ 
+ best.fit=regsubsets(Salary~.,data=train,nvmax =19)
+ validation.mat=model.matrix(Salary~.,data=validate)
+ 
+}  
+```
+
+***
+..continued from before
+```{r eval=FALSE}
+
+ for(i in 1:nvars){
+   coefi = coef(regfit.best,id=i)
+   pred = validation.mat[,names(coefi)]%*%coefi
+   cv.errors[each,i] = mean( (validate$Salary-pred)^2)
+   }
+}  
+```
+
+```{r echo=FALSE}
+nvars = 19
+nfold = 10
+# Create folds
+fold.list <- createFolds(rownames(hitters),nfold)
+# Empty vector to store the resulting MSEs
+cv.errors =matrix(0,nfold,nvars, 
+                dimnames =list(NULL,paste (1:nvars)))
+
+for(each in 1:nfold){
+ train <- hitters[-fold.list[[each]],]
+ validate <- hitters[fold.list[[each]],]
+ 
+ best.fit=regsubsets(Salary~.,data=train,nvmax =19)
+ validation.mat=model.matrix(Salary~.,data=validate)
+ for(i in 1:nvars){
+   coefi = coef(regfit.best,id=i)
+   pred = validation.mat[,names(coefi)]%*%coefi
+   cv.errors[each,i] = mean( (validate$Salary-pred)^2)
+   }
+}  
+```
+
+***
+```{r}
+mean.cv.errors=apply(cv.errors ,2, mean)
+which.min(mean.cv.errors)
+```
+
+***
+```{r eval=FALSE}
+plot.data.fold <-data.frame(
+                    "no.of.variables"=seq(1:nvars),
+                    "log_MSE"=log(mean.cv.errors))
+
+ggplot(plot.data.fold,aes(x=no.of.variables,y=log_MSE))+
+  geom_point()+
+  geom_line()
+```
+
+
+***
+```{r echo=FALSE}
+plot.data.fold <- data.frame("no.of.variables"=seq(1:nvars),
+                             "log_MSE"=log(mean.cv.errors))
+
+ggplot(plot.data.fold,aes(x=no.of.variables,y=log_MSE))+
+  geom_point()+
+  geom_line()
+
+```
+
+***
+```{r eval=FALSE}
+plot.data <- rbind(plot.data,plot.data.fold)
+plot.data$method <- c(rep("Val.set",nvars),
+                      rep("K.fold",nvars))
+
+ggplot(plot.data,aes(x=no.of.variables,y=log_MSE,
+                     color=method))+
+  geom_point()+
+  geom_line()
+```
+
+***
+```{r echo=FALSE}
+plot.data <- rbind(plot.data,plot.data.fold)
+plot.data$method <- c(rep("Val.set",nvars),
+                      rep("K.fold",nvars))
+
+ggplot(plot.data,aes(x=no.of.variables,y=log_MSE,
+                     color=method))+
+  geom_point()+
+  geom_line()
+```
+
+***
+
+To obtain the final model we perform
+best subset selection on the full data set and obtain the 8-variable
+model.
+
+```{r}
+best.fit=regsubsets(Salary~.,data=hitters,nvmax =19)
+coef(best.fit,8)[1:4]
+coef(best.fit,8)[5:9]
+```
+
+This is your final model that you'd deploy to predict the salary of baseball players.

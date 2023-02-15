@@ -1,0 +1,213 @@
+---
+title: "NBA 4920/6921 Lecture 16"
+subtitle: "Tree Methods: Regression Application" 
+author: "Murat Unal"
+date: "10/26/2021"
+output: 
+  beamer_presentation:
+    colortheme: beaver
+    df_print: kable
+    fig_height: 3
+    fig_width: 5
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(comment = '', 
+                      warning = FALSE, 
+                      message = FALSE)
+```
+
+------------------------------------------------------------------------
+
+```{r message=FALSE, warning=FALSE}
+rm(list=ls())
+options(digits = 3, scipen = 999)
+library(tidyverse)
+library(ISLR)
+library(cowplot)
+library(stargazer)
+library(lmtest)
+library(sandwich)
+library(MASS)
+library(jtools)
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(ROCR)
+set.seed(2)
+```
+
+***
+```{r}
+Hitters <- ISLR::Hitters
+Hitters <- na.omit(Hitters)
+```
+- Seperate train and test data
+```{r}
+train = sample(1:nrow(Hitters), 0.7*nrow(Hitters))
+
+```
+
+***
+# Regression Trees
+
+- We can fit a regression tree using `rpart` and then visualize it using `rpart.plot`
+
+- we need to set `method = "anova"`, for classification set `method="class"`
+
+- The main tuning parameter is `cp`, the complexity parameter
+
+
+***
+```{r}
+hit_tree = rpart(Salary ~ .,data = Hitters[train,],
+                 method="anova")
+```
+
+***
+```{r}
+hit_tree
+```
+
+***
+- We can visualize our tree model with `rpart.plot()`
+
+```{r}
+rpart.plot(hit_tree)
+```
+
+***
+- Behind the scenes `rpart()` is automatically applying a range of cost complexity $\alpha$  values to prune the tree. 
+
+- To compare the error for each  $\alpha$  value, it performs a 10-fold CV (by default)
+
+```{r}
+hit_tree$cptable
+```
+
+- Here we don't find much improvement after 2 terminal nodes 
+
+
+***
+
+- Notice the dashed line which goes through the point  $|T|=2$.
+
+- It’s common to instead use the smallest tree within 1 standard error (SE) of the minimum CV error (this is called the 1-SE rule). 
+
+- Thus, we could use a tree with just 2 terminal nodes and reasonably expect to experience similar results within a small margin of error.
+
+
+```{r}
+plotcp(hit_tree)
+```
+
+
+***
+
+- To illustrate the point of selecting a tree with 8 terminal nodes (or 2 if you go by the 1-SE rule), we can force `rpart()` to generate a full tree by setting `cp = 0` (no penalty results in a fully grown tree).
+
+```{r}
+hit_tree2 = rpart(Salary ~ .,data = Hitters[train,],
+          method="anova",control = list(cp=0,xval=10))
+```
+
+***
+```{r}
+plotcp(hit_tree2)
+abline(v = 8, lty = "dashed")
+```
+
+***
+
+- Make predictions on the test data with best cp
+```{r}
+pred.tree <- predict(hit_tree, Hitters[-train,])
+
+rmse.min.cp <- sqrt(mean((Hitters[-train,"Salary"]-
+                          pred.tree)^2))
+
+rmse.min.cp
+```
+***
+- `maxdepth`: is the maximum number of internal nodes between the root node and the terminal nodes.
+- We could obtain a tree with 2 terminal nodes by setting `maxdepth=1`.
+
+```{r}
+
+hit_tree1se <- rpart(Salary ~ .,data = Hitters[train,],
+          method="anova",maxdepth=1)
+
+hit_tree1se
+```
+
+***
+- Predictions and rmse
+```{r}
+pred.tree1se <- predict(hit_tree1se, Hitters[-train,])
+rmse.1se.cp <- sqrt(mean((Hitters[-train,"Salary"]-
+                            pred.tree1se)^2))
+rmse.1se.cp
+```
+
+# Exercise
+
+- Train a regression tree to  predict the crime rates (`crim`) in the Boston dataset.
+
+```{r}
+data_test <- read.csv("boston_test.csv")
+data_train <- read.csv("boston_train.csv")
+```
+
+***
+- Obtain the tree
+
+```{r}
+bos_tree = rpart(crim ~ .,data = data_train,
+                 method="anova")
+
+bos_tree
+```
+
+***
+- Visualize the tree
+```{r}
+rpart.plot(bos_tree)
+```
+
+***
+- Examine the cross validation errors against `cp`
+
+```{r}
+bos_tree$cptable
+```
+
+***
+- Plot `cp`
+```{r}
+plotcp(bos_tree)
+```
+
+***
+- Obtain the 1se tree
+
+```{r}
+bos_tree1se = rpart(crim ~ .,data = data_train,
+                 method="anova", maxdepth=1)
+bos_tree1se
+```
+
+
+***
+- Predictions and rmse for min cp and 1se cp
+```{r}
+pred.bos.tree <- predict(bos_tree, data_test)
+rmse.min.cp <- sqrt(mean((data_test$crim-
+                            pred.bos.tree)^2))
+rmse.min.cp
+
+pred.bos.tree1se <- predict(bos_tree1se, data_test)
+rmse.1se.cp <- sqrt(mean((data_test$crim-
+                            pred.bos.tree1se)^2))
+rmse.1se.cp
+```
+
