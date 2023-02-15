@@ -1,0 +1,548 @@
+---
+title: "NBA 4920/6921 Lecture 5"
+subtitle: "Logistic Regression" 
+author: "Murat Unal"
+date: "9/14/2021"
+output: 
+  beamer_presentation:
+    colortheme: beaver
+    df_print: kable
+    fig_height: 3
+    fig_width: 5
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(comment = '', 
+                      warning = FALSE, 
+                      message = FALSE)
+```
+
+# Agenda
+
+-   Quiz 4
+
+-   Logistic regression
+
+-   Interpretation
+
+-   Inference
+
+-   Making predictions
+
+-   Model performance
+
+-   Exercise
+
+------------------------------------------------------------------------
+
+```{r message=FALSE, warning=FALSE}
+rm(list=ls())
+options(digits = 3, scipen = 999)
+library(tidyverse)
+library(ISLR)
+library(cowplot)
+library(ggcorrplot)
+library(stargazer)
+library(corrr)
+library(lmtest)
+library(sandwich)
+library(MASS)
+library(car)
+library(jtools)
+data <- ISLR::Default
+auto <- ISLR::Auto
+```
+
+# Logistic regression
+
+Logistic regression is suitable for dealing with classification problems
+
+Using logistic regression we model the probability that outcome $Y$ belongs to a specific category
+
+Suppose we want to understand the factors that determine credit card default
+
+We observe the outcome as **Yes/No** in the dataset and recode it as
+
+```{=tex}
+\begin{equation*}
+          Y = \begin{cases}
+              1  \text{ if Yes}\\
+              0  \text{ if No}\\
+            \end{cases}
+\end{equation*}
+```
+
+Note: R does this automatically when we call the `glm()` function.
+
+------------------------------------------------------------------------
+
+Let's use the `Default` dataset from the ISLR package
+
+```{r}
+str(data)
+```
+
+Our outcome of interest is `default`, whether a person failed to pay back their loan.
+
+```{r}
+table(data$default)
+```
+
+The rate of default is only $3.3\%$.
+
+------------------------------------------------------------------------
+
+Let's sample from those who did not default and create a new sample data set that we can use to visualize patterns.
+
+```{r}
+# Extract the observations that did not default
+default.no.rows<-rownames(data[data$default=="No",])
+
+# Sample 5% from them
+no.sample<-sample(default.no.rows,0.05*nrow(data))
+
+# Create new data frame by combining the 
+# 5% non-defaulters and all that did default.
+default.sample<-rbind(data[no.sample,],
+                    filter(data,default=="Yes"))
+# New default rate.
+table(default.sample$default)
+```
+
+The new default rate is now `r round(333/833,2)`
+
+***
+
+As a first step, what do the following graphs tell us about the relationship between `default` and the observed factors `balance` and `income`.
+
+
+
+------------------------------------------------------------------------
+
+```{r, echo=FALSE}
+p1 <- ggplot(default.sample, mapping=aes(y=balance,
+                              x=default,fill=default))+
+    geom_boxplot()
+
+p2 <- ggplot(default.sample, mapping=aes(y=income,
+                              x=default,fill=default))+
+    geom_boxplot()
+
+plot_grid(p1,p2, ncol = 2)
+```
+
+------------------------------------------------------------------------
+
+The plots suggest `balance` is an important factor for `default`
+
+Let us model the probability of `default` as a function of `balance`
+
+```{=tex}
+\begin{equation*}
+        p(default = 1| balance)=p(balance) 
+\end{equation*}
+```
+\pause
+
+We could use linear regression to estimate this model
+
+```{=tex}
+\begin{equation*}
+        p(X)=\beta_0 + \beta_1 balance
+\end{equation*}
+```
+\pause
+
+\alert{Q:} Do you see any problems with this?
+
+\pause
+
+\alert{A:} We can have probability estimates $[-\infty, +\infty]$
+
+------------------------------------------------------------------------
+
+To prevent nonsensical estimates we apply the logistic transformation to the predictors
+
+```{=tex}
+\begin{equation*}
+        p(X)=\frac{e^{\beta_0 + \beta_1X}}{1 + e^{\beta_0 + \beta_1X}}
+\end{equation*}
+```
+The logistic function $(\frac{e^x}{1 + e^x})$ ensures probability estimates are between 0 and 1 no matter what values $\beta_0, \beta_1$ and $X$ take
+
+------------------------------------------------------------------------
+
+The following graphs show $p(X)$ modeled using linear regression, versus logistic regression
+
+```{r echo=FALSE, fig.cap=""}
+knitr::include_graphics("4.2.pdf")
+```
+
+# Interpretation
+
+Rearranging gives us
+
+```{=tex}
+\begin{equation*}
+        p(X)=\frac{e^{\beta_0 + \beta_1X}}{1 + e^{\beta_0 + \beta_1X}} \leadsto
+         log (\frac{p(X)}{1-p(X)}) = \beta_0 + \beta_1X
+\end{equation*}
+```
+We have the $log$ \alert{odds}/logit on the LHS and linear predictors on the RHS
+
+\pause
+
+Increasing $X$ by one unit is associated with changes in the $log$ \alert{odds} by $\beta_1$
+
+***
+
+## Odds
+
+\alert{Odds}  are defined as the ratio of the probability of success and the probability of failure  
+
+If the probability of success is $80\%$ then the \alert{odds}  of success are $.8/.2=4$ to 1
+    
+***
+Contrary to linear regression, the relationship between $p(X)$ and $X$ is not a straight line, 
+
+so $\beta_1$ does \textbf{not} correspond to the change in $p(X)$ with a one unit increase in $X$
+
+Changes in probability due to $X$ are \textbf{non-linear} and depend on the value of $X$
+
+***
+
+## Estimation
+
+We obtain estimates for the coefficients $\beta_0,\beta_1$ by maximizing the \textbf{likelihood function}:
+    
+\begin{equation*}
+        l(\beta_0, \beta_1) = \prod_{i:y_i=1}p(x_i)\prod_{i:y_i=0}(1-p(x_i))
+\end{equation*}
+
+The values $\hat{\beta_0},\hat{\beta_1}$ are the  \textbf{maximum likelihood estimates}    
+
+# Inference
+
+We can apply the same principles  from linear regression for inference purposes, i.e. test the \textbf{null hypothesis} of
+
+$H_0$ : The coefficient $\hat{\beta_j}$ has no effect on $log$ \alert{odds}, 
+
+i.e $\hat{\beta_j} = 0$ versus
+
+the \textbf{alternative hypothesis}
+
+$H_A$ : The coefficient $\hat{\beta_j}$ has some effect on $log$ \alert{odds} i.e $\hat{\beta_j} \neq 0$
+
+A positive (negative) and significant coefficient means that an increase (decrease) in a predictor is associated with an increase (decrease) in the $log$ \alert{odds} as well as $p(X)$
+
+***
+
+```{r}
+logit1 <- glm(default~balance,family = "binomial", 
+                          data = data)
+summ(logit1, model.info = FALSE, model.fit = FALSE, 
+                           robust="HC0",digits = 3)
+```
+
+A one unit increase in `balance` is associated with an increase in the $log$ \alert{odds} of `default` by $0.005$ units
+
+
+***
+
+Or we can use \alert{odds} by exponentiating the coefficient estimate. Set `exp=TRUE` inside the `summ()` function.
+
+```{r}
+summ(logit1,model.info=FALSE,model.fit = FALSE, 
+      confint=FALSE,exp=TRUE,robust="HC0",digits = 3)
+```
+
+A one unit increase in `balance` multiplies the \alert{odds} that `default` = 1  by a factor of $e^{0.0055} = 1.0055$
+
+A 100 unit increase in `balance` multiplies the \alert{odds} that `default` = 1  by a factor of $e^{0.0055*100} = 1.73$
+
+
+# Making predictions
+
+The estimated probability of  `default` = 1 for someone 
+
+with a `balance` of 1000 is
+
+\begin{equation*}
+        \hat{p}(X)=\frac{e^{\hat{\beta_0} + \hat{\beta_1}X}}{1 + e^{\hat{\beta_0} + \hat{\beta_1}X}} = \frac{e^{-10.6513 + 0.0055\times 1000}}{1 + e^{-10.6513 + 0.0055\times 1000}}=0.006
+\end{equation*}
+  
+with a `balance` of 2000 is
+
+\begin{equation*}
+        \hat{p}(X)=\frac{e^{\hat{\beta_0} + \hat{\beta_1}X}}{1 + e^{\hat{\beta_0} + \hat{\beta_1}X}} = \frac{e^{-10.6513 + 0.0055\times 2000}}{1 + e^{-10.6513 + 0.0055\times 2000}}=0.586
+\end{equation*}
+
+***
+
+We can use `predict()` to get predictions out of the fitted model.
+
+`predict()` produces multiple types of predictions.
+
+1. type = `response` predicts on the scale of the response variable
+for logistic regression, this means predicted probabilities (0 to 1)
+
+2. type = `link` predicts on the scale of the linear predictors
+for logistic regression, this means predicted log odds ($-\infty , +\infty$)
+
+The default is type = `link`, which you may not want.
+
+***
+```{r}
+# Predictions on scale of response (outcome) variable
+p_hat = predict(logit1, type = "response")
+
+# Predict '1' if p_hat is greater or equal to 
+# some threshold
+threshold = 0.5
+y_hat = as.numeric(p_hat >= threshold)
+```
+
+***
+
+## Qualitative predictors
+
+```{r}
+logit2 <- glm(default~factor(student),
+              family = "binomial",data = data)
+summ(logit2, model.info = FALSE, model.fit = FALSE, 
+                            robust="HC0",digits = 2)
+```
+
+Being a student is associated with an increase in the $log$ \alert{odds} of default by $0.405$ 
+
+In terms of \alert{odds}, being a  student  multiplies the \alert{odds} of `default` = 1  by a factor of $e^{0.405} = 1.5$
+
+
+***
+
+Let's check this is indeed true in two ways:
+
+1. The model equation:
+\begin{equation*}
+    log(\frac{p(X)}{1-p(X)}) = \beta_0 + \beta_1X
+\end{equation*}
+    
+\pause
+\begin{align*}
+    log(\frac{\hat{p}(default = 1| student= 1 )}{1 - \hat{p}(default = 1| student= 1 )}) &= log(odds((student=1))\\
+               &=  -3.5041 + 0.4049\times 1 
+\end{align*}
+     
+\pause
+\begin{align*}
+    log(\frac{\hat{p}(default = 1| student= 0 )}{1 - \hat{p}(default = 1| student= 0 )}) &= log(odds((student=0))\\
+               &=  -3.5041 + 0.4049\times 0 
+\end{align*}
+
+\pause
+\begin{equation*}
+        \leadsto  log(odds((student=1)) - log(odds(student=0)) = 0.4049 
+\end{equation*}
+    
+***
+
+\begin{align*}
+         \leadsto & log(\frac{odds(student=1)}{odds(student=0)}) = 0.4049\\ \leadsto &\frac{odds(student=1)}{odds(student=0)}= e^{0.4049} = 1.5  \quad {\color{green}\checkmark}
+\end{align*}
+
+***
+
+2. Using the predicted values:
+
+\begin{align*}
+       \hat{p}(default = 1| student= 1)&=\frac{e^{\hat{\beta_0} + \hat{\beta_1}X}}{1 + e^{\hat{\beta_0} + \hat{\beta_1}X}} \\
+       &= \frac{e^{-3.5041 + 0.4049\times 1}}{1 + e^{-3.5041 + 0.4049\times 1}}=0.0431
+\end{align*}
+    
+\begin{align*}
+       \hat{p}(default = 1| student= 0)&=\frac{e^{\hat{\beta_0} + \hat{\beta_1}X}}{1 + e^{\hat{\beta_0} + \hat{\beta_1}X}} \\
+       &= \frac{e^{-3.5041 + 0.4049\times 0}}{1 + e^{-3.5041 + 0.4049\times 0}}=0.0292
+\end{align*}
+
+***
+
+\begin{align*}
+         odds(student=1) &= \frac{0.04431}{1-0.0431} = 0.045 \\
+         odds(student=0) &= \frac{0.0292}{1-0.0292} = 0.030
+\end{align*}
+
+\pause
+
+\begin{equation*}
+\leadsto \frac{odds(student=1)}{odds(student=0)} = 0.45/0.30 = 1.5 \color{green}\checkmark
+\end{equation*}
+
+***
+
+## Multiple predictors
+
+Let us estimate the model with the full predictors: `balance`,`income`,`student`.
+
+```{r}
+logit3 <- glm(default~balance + income +
+              factor(student),family = "binomial", 
+                                    data = data)
+summ(logit3, model.info = FALSE, model.fit = FALSE, 
+                            robust="HC0",digits = 2)
+```
+
+***
+
+Now, the multiple logistic regression results indicate that for a fixed value of `balance` and `income` a student is less likely to default than a non-student
+  
+\pause
+Ok. But we just saw the opposite. Let us investigate.
+
+***
+```{r echo=FALSE, fig.cap=""}
+knitr::include_graphics("4.3.pdf")
+```
+
+`balance` and `student` are correlated. Students have higher levels of debt, which is associated with higher default rates.
+
+So, overall, students tend to default at a higher rate than non-students (see dashed lines)
+
+However, conditional on having the same balance, a student has a lower probability of default than a non-student
+(see solid lines)
+
+***
+
+This is again an example of \alert{Omitted Variable Bias} (leaving out `balance` from the model results in biased estimates for the effect of  `student` on the probability of default) and illustrates why we need to be careful in the conclusions we draw from model outputs using observational data
+
+\pause
+\alert{Q:} What else do you think we are missing in the model?
+
+***
+
+The probability of default for a student with a credit card balance \$1,500 and income \$40,000 is:
+
+\begin{equation*}
+  \hat{p}(X)= \frac{e^{-10.869 + 0.00574\times 1,500 + 0.003\times 40 - + 0.6468\times 1}}{1 + e^{-10.869 + 0.00574\times 1,500 + 0.003\times 40 - + 0.6468\times 1}}=0.058    
+\end{equation*}
+
+The probability of default for a non-student with the same balance and income is: 
+
+\begin{equation*}
+  \hat{p}(X)= \frac{e^{-10.869 + 0.00574\times 1,500 + 0.003\times 40 - + 0.6468\times 0}}{1 + e^{-10.869 + 0.00574\times 1,500 + 0.003\times 40 - + 0.6468\times 0}}= 0.105    
+\end{equation*}
+
+# Model performance
+
+How does our logistic model fit the data? We want to quantify it.
+
+The \textbf{deviance} -negative two times the maximized
+log-likelihood- plays the role of $RSS$ in logistic regression.
+
+Similar to $RSS$ in OLS, the \textbf{deviance} decreases as the number of variables in the model  increase.
+
+```{r}
+logLik(logit3)
+#Deviance = -2*logLik
+logit3$deviance
+#Null deviance
+logit3$null.deviance
+```
+
+***
+
+We define a test statistic based on the differences between the residual deviance -$RSS$ for the model with predictors and the null model, null deviance -$TSS$
+
+```{r}
+with(logit3, null.deviance - deviance)
+with(logit3, df.null - df.residual)
+```
+
+The test statistic is distributed $chi-squared$ with d.o.f equal to the differences in d.o.f between the current and the null model, i.e. the number of predictors in the model.
+
+***
+
+Using this test we evaluate whether there's statistically meaningful decrease in the residual deviance-$RSS$
+
+```{r}
+#p-value of the test:
+sprintf("p-value: %f",with(logit3,
+        pchisq(null.deviance-deviance, 
+               df.null-df.residual,lower.tail=FALSE)))
+```
+
+If yes, we conclude that our model is overall significant, thus useful
+
+***
+We could get to the same conclusion by looking into the model fit using the `summ()` function
+
+```{r}
+summ(logit3,model.info = FALSE,robust="HC0",digits = 2)
+```
+
+***
+Similar to the __anova test__ in liner regression, the __likelihood ratio test__ is used to compare two nested models.
+
+Use the `lrtest()` in R.
+
+***
+
+# Exercise
+1. Test whether `income` is an important variable in the model by comparing two models: with and without `income`. Do it both manually and through the `lrtest()` function.
+
+2. Obtain prediction of default using the better model.
+
+3. Plot the density distributions of the predictions based on default status.
+
+***
+```{r}
+logit.no.income <- glm(default~balance +
+              factor(student),family = "binomial", 
+                                    data = data)
+logit3 <- glm(default~balance + income +
+              factor(student),family = "binomial", 
+                                    data = data)
+```
+
+***
+
+```{r}
+# Differences in the deviance:
+dev.diff <- logit.no.income$deviance - logit3$deviance
+# Get the d.o.f
+dof <- logit.no.income$df.residual - logit3$df.residual
+# Call the test
+sprintf("p-value: %f",
+        pchisq(dev.diff,dof,lower.tail=FALSE))
+```
+
+***
+```{r}
+# Likelihood retio test
+lrtest(logit.no.income, logit3)
+```
+
+Since `p-val`$>0.05$ we conclude that including `income` in the model does not have a statistically meaningful impact.
+
+***
+```{r}
+# Predictions on scale of response (outcome) variable
+p_hat = predict(logit.no.income, type = "response")
+# Add the predictions to the data:
+data$p_hat <- p_hat
+```
+```{r, eval=FALSE}
+ggplot(data,aes(y=..density..,x=p_hat,color=default))+
+  geom_freqpoly()
+```
+
+
+***
+```{r, echo=FALSE}
+ggplot(data,aes(y=..density..,x=p_hat,color=default))+
+  geom_freqpoly()
+```
+
+
+
+
+
